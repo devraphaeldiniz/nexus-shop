@@ -185,18 +185,11 @@ export function Navbar() {
                 Todos os Smartphones
               </Link>
               <Link
-                href="/products?brand=Apple"
+                href="/products"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="p-2 hover:bg-slate-900 rounded"
               >
-                Apple iPhone
-              </Link>
-              <Link
-                href="/products?brand=Samsung"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="p-2 hover:bg-slate-900 rounded"
-              >
-                Samsung Galaxy
+                Catálogo completo
               </Link>
               {mounted && user?.role === 'ADMIN' && (
                 <Link

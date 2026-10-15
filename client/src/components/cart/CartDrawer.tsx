@@ -1,8 +1,6 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import Image from 'next/image'
-import Link from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react'
 import { useCartStore } from '../../store/useCartStore'
@@ -34,7 +32,7 @@ export function CartDrawer() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
+    <div className="fixed inset-0 z-50 overflow-hidden animate-fade-up">
       {/* Backdrop com blur */}
       <div
         onClick={() => setIsOpen(false)}
@@ -42,7 +40,7 @@ export function CartDrawer() {
       />
 
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-md bg-slate-900 border-l border-slate-800 text-white flex flex-col shadow-2xl">
+        <div className="w-screen max-w-md bg-slate-900 border-l border-slate-800 text-white flex flex-col shadow-2xl animate-slide-in-right">
           {/* Header */}
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2">

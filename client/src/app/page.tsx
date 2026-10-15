@@ -28,16 +28,17 @@ async function getProducts(): Promise<Product[]> {
 export default async function HomePage() {
   const products = await getProducts()
 
-  const brands = [
-    { name: 'Apple', desc: 'Linha iPhone 15 & 14' },
-    { name: 'Samsung', desc: 'Linha Galaxy S24 & Z Fold' },
-    { name: 'Xiaomi', desc: 'Linha 14 Ultra & Redmi' },
-    { name: 'Google', desc: 'Linha Pixel 8 Pro' },
-    { name: 'Motorola', desc: 'Linha Edge 50 Ultra' },
-  ]
+  const brands = Array.from(
+    new Map(
+      products.map((product) => [
+        product.brand,
+        { name: product.brand, desc: `Ver produtos ${product.brand}` },
+      ])
+    ).values()
+  )
 
   return (
-    <div className="space-y-16 pb-16">
+    <div className="space-y-16 pb-16 animate-fade-up">
       {/* ==================== HERO SECTION COMERCIAL ==================== */}
       <section className="border-b border-slate-800 bg-slate-900/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20">
@@ -66,10 +67,10 @@ export default async function HomePage() {
                   <ArrowRight className="w-4 h-4" />
                 </Link>
                 <Link
-                  href="/products?brand=Apple"
+                  href="/products"
                   className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold rounded-lg text-xs transition-colors"
                 >
-                  Ver Linha iPhone
+                  Explorar catálogo
                 </Link>
               </div>
 
@@ -92,27 +93,39 @@ export default async function HomePage() {
 
             {/* Imagem do Aparelho Destaque */}
             <div className="lg:col-span-5 flex justify-center">
-              <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-xl space-y-4">
-                <div className="aspect-square bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center border border-slate-800/80">
-                  <img
-                    src="https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=800&auto=format&fit=crop"
-                    alt="Smartphone em destaque"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex justify-between items-center text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Flagship em Destaque</span>
-                    <p className="font-bold text-white text-sm">Apple iPhone 15 Pro Max</p>
+              {products[0] ? (
+                <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-xl space-y-4">
+                  <div className="aspect-square bg-slate-950 rounded-xl overflow-hidden flex items-center justify-center border border-slate-800/80">
+                    {products[0].images?.[0]?.url ? (
+                      <img
+                        src={products[0].images[0].url}
+                        alt={products[0].name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Smartphone className="w-16 h-16 text-slate-700" />
+                    )}
                   </div>
-                  <Link
-                    href="/products/apple-iphone-15-pro-max"
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium"
-                  >
-                    Ver Detalhes
-                  </Link>
+                  <div className="flex justify-between items-center text-xs gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold">Em destaque</span>
+                      <p className="font-bold text-white text-sm truncate">{products[0].name}</p>
+                    </div>
+                    <Link
+                      href={`/products/${products[0].slug}`}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium whitespace-nowrap"
+                    >
+                      Ver detalhes
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="w-full max-w-sm aspect-square rounded-2xl bg-slate-900 border border-slate-800 flex flex-col items-center justify-center text-center p-8">
+                  <Smartphone className="w-12 h-12 text-slate-700 mb-4" />
+                  <p className="text-sm font-semibold text-slate-300">Sua vitrine começa aqui</p>
+                  <p className="text-xs text-slate-500 mt-1">Cadastre o primeiro produto no painel administrativo.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

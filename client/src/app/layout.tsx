@@ -5,10 +5,10 @@ import { Footer } from '../components/layout/Footer'
 import { CartDrawer } from '../components/cart/CartDrawer'
 
 export const metadata: Metadata = {
-  title: 'Nexus Shop — Smartphones Premium & Flagships',
+  title: 'Nexus Shop — Smartphones',
   description:
-    'A loja definitiva de smartphones no Brasil. Apple iPhone 15 Pro, Samsung Galaxy S24 Ultra, Xiaomi 14 Ultra com garantia nacional e envio expresso.',
-  keywords: 'smartphones, iphone, galaxy, xiaomi, pixel, 5g, celular, ecommerce',
+    'Compre smartphones com pagamento seguro, garantia e envio rastreado.',
+  keywords: 'smartphones, celulares, ecommerce, pagamento seguro',
 }
 
 export default function RootLayout({

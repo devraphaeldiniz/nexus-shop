@@ -76,24 +76,22 @@ export function Footer() {
           </div>
 
           <div>
-            <h5 className="text-white text-sm font-semibold mb-3">Marcas Premium</h5>
+            <h5 className="text-white text-sm font-semibold mb-3">Loja</h5>
             <ul className="space-y-2 text-xs">
-              <li><Link href="/products?brand=Apple" className="hover:text-white transition-colors">Apple iPhone</Link></li>
-              <li><Link href="/products?brand=Samsung" className="hover:text-white transition-colors">Samsung Galaxy</Link></li>
-              <li><Link href="/products?brand=Xiaomi" className="hover:text-white transition-colors">Xiaomi Flagships</Link></li>
-              <li><Link href="/products?brand=Google" className="hover:text-white transition-colors">Google Pixel</Link></li>
-              <li><Link href="/products?brand=Motorola" className="hover:text-white transition-colors">Motorola Edge</Link></li>
+              <li><Link href="/products" className="hover:text-white transition-colors">Catálogo de smartphones</Link></li>
+              <li><Link href="/login" className="hover:text-white transition-colors">Minha conta</Link></li>
+              <li><Link href="/checkout" className="hover:text-white transition-colors">Finalizar compra</Link></li>
             </ul>
           </div>
 
           <div>
             <h5 className="text-white text-sm font-semibold mb-3">Ajuda & Suporte</h5>
             <ul className="space-y-2 text-xs">
-              <li><a href="#" className="hover:text-white transition-colors">Acompanhar Pedido</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Política de Frete</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Trocas e Devoluções</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Termos de Garantia</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Fale Conosco</a></li>
+              <li><Link href="/orders" className="hover:text-white transition-colors">Acompanhar pedido</Link></li>
+              <li><Link href="/shipping-policy" className="hover:text-white transition-colors">Política de frete</Link></li>
+              <li><Link href="/returns" className="hover:text-white transition-colors">Trocas e devoluções</Link></li>
+              <li><Link href="/terms" className="hover:text-white transition-colors">Termos de garantia</Link></li>
+              <li><Link href="/contact" className="hover:text-white transition-colors">Fale conosco</Link></li>
             </ul>
           </div>
 
@@ -114,7 +112,7 @@ export function Footer() {
         {/* Copyright */}
         <div className="pt-8 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-500 gap-4">
           <p>© 2025 Nexus Shop Comércio Eletrônico Ltda. Todos os direitos reservados.</p>
-          <p>CNPJ: 00.000.000/0001-00 · Desenvolvido com Next.js 14, Fastify & Prisma</p>
+          <p>Informações comerciais e legais disponíveis no painel da loja</p>
         </div>
       </div>
     </footer>

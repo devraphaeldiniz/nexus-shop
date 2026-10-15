@@ -18,7 +18,7 @@ function ProductsContent() {
   const [minPrice, setMinPrice] = useState<string>('')
   const [maxPrice, setMaxPrice] = useState<string>('')
 
-  const brands = ['Apple', 'Samsung', 'Xiaomi', 'Google', 'Motorola']
+  const brands = Array.from(new Set(products.map((product) => product.brand).filter(Boolean)))
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
 
   useEffect(() => {

@@ -14,6 +14,30 @@ body {
   overflow-x: hidden;
 }
 
+@keyframes nexus-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nexus-pulse-soft {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(99 102 241 / 0); }
+  50% { box-shadow: 0 0 0 5px rgb(99 102 241 / 0.12); }
+}
+
+.animate-fade-up { animation: nexus-fade-up 420ms ease-out both; }
+
+@keyframes nexus-slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right { animation: nexus-slide-in-right 260ms ease-out both; }
+.animate-pulse-soft { animation: nexus-pulse-soft 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 8px;

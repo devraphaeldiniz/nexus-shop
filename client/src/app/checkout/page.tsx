@@ -157,7 +157,15 @@ export default function CheckoutPage() {
     try {
       // 1. Cadastrar endereço ou usar o selecionado
       const orderPayload = {
-        addressId: 'temp_address', // O backend associa com o usuário
+        address: {
+          street: address.street,
+          number: address.number,
+          complement: address.complement || undefined,
+          neighborhood: address.neighborhood,
+          city: address.city,
+          state: address.state,
+          zipCode: address.zipCode,
+        },
         paymentGateway: selectedGateway,
         paymentMethod: selectedMethod,
         couponCode: couponApplied ? couponCode.trim() : undefined,
