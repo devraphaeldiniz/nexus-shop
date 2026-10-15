@@ -5,7 +5,16 @@ import { authenticate, authorize } from '../../middlewares/auth.middleware.js'
 import { PaymentGateway, PaymentMethod, OrderStatus } from '@prisma/client'
 
 const CreateOrderSchema = z.object({
-  addressId: z.string().min(1),
+  addressId: z.string().min(1).optional(),
+  address: z.object({
+    street: z.string().min(1),
+    number: z.string().min(1),
+    complement: z.string().optional(),
+    neighborhood: z.string().min(1),
+    city: z.string().min(1),
+    state: z.string().min(2),
+    zipCode: z.string().min(8),
+  }).optional(),
   paymentGateway: z.nativeEnum(PaymentGateway),
   paymentMethod: z.nativeEnum(PaymentMethod),
   couponCode: z.string().optional(),

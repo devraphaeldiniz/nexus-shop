@@ -13,7 +13,16 @@ import {
 import { sendMail } from '../../config/mail.js'
 
 export interface CreateOrderInput {
-  addressId: string
+  addressId?: string
+  address?: {
+    street: string
+    number: string
+    complement?: string
+    neighborhood: string
+    city: string
+    state: string
+    zipCode: string
+  }
   paymentGateway: PaymentGateway
   paymentMethod: PaymentMethod
   couponCode?: string
@@ -23,9 +32,16 @@ export interface CreateOrderInput {
 export class OrderService {
   async create(userId: string, data: CreateOrderInput) {
     // 1. Validar endereço do usuário
-    const address = await prisma.address.findFirst({
-      where: { id: data.addressId, userId },
-    })
+    let address
+    if (data.addressId) {
+      address = await prisma.address.findFirst({
+        where: { id: data.addressId, userId },
+      })
+    } else if (data.address) {
+      address = await prisma.address.create({
+        data: { userId, ...data.address },
+      })
+    }
     if (!address) throw new BadRequestError('Endereço de entrega inválido')
 
     // 2. Buscar itens do carrinho
@@ -86,7 +102,7 @@ export class OrderService {
       const newOrder = await tx.order.create({
         data: {
           userId,
-          addressId: data.addressId,
+          addressId: address.id,
           paymentGateway: data.paymentGateway,
           paymentMethod: data.paymentMethod,
           subtotal,
@@ -141,18 +157,24 @@ export class OrderService {
     })
 
     // Enviar e-mail de confirmação de criação de pedido
-    sendMail({
-      to: order.user.email,
-      subject: `Nexus Shop — Pedido #${order.id.slice(-8)} recebido!`,
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px;">
-          <h2>Pedido #${order.id.slice(-8)} recebido! 🎉</h2>
-          <p>Olá, ${order.user.name}. Seu pedido foi registrado e aguarda confirmação de pagamento.</p>
-          <p><strong>Total:</strong> R$ ${Number(order.total).toFixed(2)}</p>
-          <p><strong>Entrega em:</strong> ${order.address.street}, ${order.address.number} - ${order.address.city}/${order.address.state}</p>
-        </div>
-      `,
-    }).catch(console.error)
+    const customer = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    })
+    if (customer) {
+      sendMail({
+        to: customer.email,
+        subject: `Nexus Shop — Pedido #${order.id.slice(-8)} recebido!`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px;">
+            <h2>Pedido #${order.id.slice(-8)} recebido!</h2>
+            <p>Olá, ${customer.name}. Seu pedido foi registrado e aguarda confirmação de pagamento.</p>
+            <p><strong>Total:</strong> R$ ${Number(order.total).toFixed(2)}</p>
+            <p><strong>Entrega em:</strong> ${address.street}, ${address.number} - ${address.city}/${address.state}</p>
+          </div>
+        `,
+      }).catch(console.error)
+    }
 
     return order
   }
