@@ -8,7 +8,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   FRONTEND_URL: z.string().default('http://localhost:3000'),
 
-  DATABASE_URL: z.string().default('postgresql://nexus_user:nexus_password123@localhost:5432/nexus_shop?schema=public'),
+  DATABASE_URL: z.string().default('postgresql://nexus_user:nexus_password123@localhost:5433/nexus_shop?schema=public'),
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
   JWT_ACCESS_SECRET: z.string().min(16).default('nexus-shop-access-secret-32-chars-at-least!'),
