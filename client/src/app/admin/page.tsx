@@ -897,8 +897,46 @@ export default function AdminPage() {
                   />
                 </div>
 
-                <div className="sm:col-span-2">
-                  <label className="text-slate-400 block mb-1">Links das Fotos (uma URL por linha)</label>
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="text-slate-400 block mb-1">Fotos do Smartphone</label>
+                  
+                  {/* Upload Direto de Imagem */}
+                  <div className="flex items-center gap-3">
+                    <label className="cursor-pointer px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 transition-colors">
+                      <Plus className="w-4 h-4 text-indigo-400" />
+                      <span>Fazer Upload de Foto do Computador</span>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          const formData = new FormData()
+                          formData.append('file', file)
+
+                          try {
+                            const res = await fetch(`${apiUrl}/upload`, {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${accessToken}` },
+                              body: formData,
+                            })
+                            if (res.ok) {
+                              const uploadData = await res.json()
+                              const currentImages = productForm.images ? productForm.images + '\n' : ''
+                              setProductForm({ ...productForm, images: `${currentImages}${apiUrl.replace('/api/v1', '')}${uploadData.url}` })
+                            } else {
+                              alert('Erro ao enviar imagem. Verifique se o arquivo tem até 10MB (JPG/PNG/WEBP).')
+                            }
+                          } catch {
+                            alert('Falha na conexão durante o upload.')
+                          }
+                        }}
+                      />
+                    </label>
+                    <span className="text-[10px] text-slate-500">Ou cole links externos abaixo (uma URL por linha):</span>
+                  </div>
+
                   <textarea
                     rows={3}
                     placeholder="https://exemplo.com/foto1.jpg&#10;https://exemplo.com/foto2.jpg"

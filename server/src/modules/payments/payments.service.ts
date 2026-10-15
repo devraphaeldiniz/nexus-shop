@@ -1,19 +1,34 @@
-import { prisma } from '../../config/prisma.js'
+import crypto from 'crypto'
 import Stripe from 'stripe'
-import { stripe } from '../../config/stripe.js'
-import { mpPreference, mpPayment } from '../../config/mercadopago.js'
+import { MercadoPagoConfig, Preference, Payment } from 'mercadopago'
+import { prisma } from '../../config/prisma.js'
 import { env } from '../../config/env.js'
 import { PaymentGateway, PaymentStatus, OrderStatus } from '@prisma/client'
-import { BadRequestError, NotFoundError } from '../../utils/errors.js'
+import { BadRequestError, NotFoundError, UnauthorizedError } from '../../utils/errors.js'
+import { sendMail } from '../../config/mail.js'
 
 export class PaymentService {
+  /**
+   * Obtém as credenciais ativas do lojista ou recorre às variáveis de ambiente
+   */
+  private async getActiveCredentials() {
+    const settings = await prisma.storeSettings.findUnique({ where: { id: 'default' } })
+    return {
+      stripeSecret: settings?.stripeSecretKey || env.STRIPE_SECRET_KEY,
+      stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+      mpAccessToken: settings?.mercadoPagoAccessToken || env.MERCADOPAGO_ACCESS_TOKEN,
+      mpWebhookSecret: env.MERCADOPAGO_WEBHOOK_SECRET,
+      storeName: settings?.storeName || 'Nexus Shop',
+    }
+  }
+
   // ==========================================
-  // STRIPE PAYMENT INTEGRATION
+  // STRIPE: INTENT & WEBHOOK REAL COM ASSINATURA
   // ==========================================
   async createStripeIntent(orderId: string, userId: string) {
     const order = await prisma.order.findFirst({
       where: { id: orderId, userId },
-      include: { user: true },
+      include: { user: true, items: true },
     })
 
     if (!order) throw new NotFoundError('Pedido não encontrado')
@@ -21,139 +36,83 @@ export class PaymentService {
       throw new BadRequestError('Este pedido já foi pago')
     }
 
-    // Buscar chave configurada pelo lojista
-    const settings = await prisma.storeSettings.findUnique({ where: { id: 'default' } })
-    const activeStripeKey = settings?.stripeSecretKey || env.STRIPE_SECRET_KEY
+    const { stripeSecret } = await this.getActiveCredentials()
+    const activeStripe = new Stripe(stripeSecret, {
+      apiVersion: '2024-06-20',
+      typescript: true,
+    })
 
     const amountInCents = Math.round(Number(order.total) * 100)
 
-    try {
-      const activeStripe = new Stripe(activeStripeKey, {
-        apiVersion: '2024-06-20',
-        typescript: true,
-      })
+    const paymentIntent = await activeStripe.paymentIntents.create({
+      amount: amountInCents,
+      currency: env.STRIPE_CURRENCY,
+      metadata: {
+        orderId: order.id,
+        userId: order.userId,
+      },
+      receipt_email: order.user.email,
+      automatic_payment_methods: { enabled: true },
+    })
 
-      const paymentIntent = await activeStripe.paymentIntents.create({
-        amount: amountInCents,
-        currency: env.STRIPE_CURRENCY,
-        metadata: {
-          orderId: order.id,
-          userId: order.userId,
-        },
-        receipt_email: order.user.email,
-        automatic_payment_methods: { enabled: true },
-      })
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { externalReference: paymentIntent.id },
+    })
 
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { externalReference: paymentIntent.id },
-      })
-
-      return {
-        clientSecret: paymentIntent.client_secret,
-        paymentIntentId: paymentIntent.id,
-        gateway: PaymentGateway.STRIPE,
-      }
-    } catch (err: any) {
-      console.warn('Stripe gateway note:', err.message)
-      return {
-        clientSecret: `mock_pi_${order.id}_secret_nexus`,
-        paymentIntentId: `mock_pi_${order.id}`,
-        gateway: PaymentGateway.STRIPE,
-        isMock: true,
-      }
+    return {
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      gateway: PaymentGateway.STRIPE,
     }
   }
 
-  async handleStripeWebhook(event: any) {
-    switch (event.type) {
-      case 'payment_intent.succeeded': {
-        const intent = event.data.object
-        const orderId = intent.metadata?.orderId
+  async handleStripeWebhook(rawBody: string | Buffer, signature: string) {
+    const { stripeSecret, stripeWebhookSecret } = await this.getActiveCredentials()
+    const activeStripe = new Stripe(stripeSecret, {
+      apiVersion: '2024-06-20',
+      typescript: true,
+    })
 
-        if (orderId) {
-          await this.completePayment(orderId, PaymentGateway.STRIPE, intent.id, intent.amount / 100)
-        }
-        break
+    let event: Stripe.Event
+    try {
+      event = activeStripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        stripeWebhookSecret
+      )
+    } catch (err: any) {
+      throw new UnauthorizedError(`Assinatura de Webhook Stripe inválida: ${err.message}`)
+    }
+
+    if (event.type === 'payment_intent.succeeded') {
+      const intent = event.data.object as Stripe.PaymentIntent
+      const orderId = intent.metadata?.orderId
+      if (orderId) {
+        await this.completePayment(
+          orderId,
+          PaymentGateway.STRIPE,
+          intent.id,
+          intent.amount / 100
+        )
       }
-      case 'payment_intent.payment_failed': {
-        const intent = event.data.object
-        const orderId = intent.metadata?.orderId
-
-        if (orderId) {
-          await prisma.order.update({
-            where: { id: orderId },
-            data: { paymentStatus: PaymentStatus.FAILED },
-          })
-        }
-        break
+    } else if (event.type === 'payment_intent.payment_failed') {
+      const intent = event.data.object as Stripe.PaymentIntent
+      const orderId = intent.metadata?.orderId
+      if (orderId) {
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { paymentStatus: PaymentStatus.FAILED },
+        })
       }
     }
+
     return { received: true }
   }
 
   // ==========================================
-  // MERCADO PAGO INTEGRATION (PIX / CARD / BOLETO)
+  // MERCADO PAGO: PIX REAL E WEBHOOK HMAC
   // ==========================================
-  async createMercadoPagoPreference(orderId: string, userId: string) {
-    const order = await prisma.order.findFirst({
-      where: { id: orderId, userId },
-      include: { items: true, user: true },
-    })
-
-    if (!order) throw new NotFoundError('Pedido não encontrado')
-    if (order.paymentStatus === 'PAID') {
-      throw new BadRequestError('Este pedido já foi pago')
-    }
-
-    try {
-      const preference = await mpPreference.create({
-        body: {
-          items: order.items.map((item) => ({
-            id: item.productId,
-            title: item.name,
-            quantity: item.quantity,
-            unit_price: Number(item.price),
-            currency_id: 'BRL',
-          })),
-          payer: {
-            email: order.user.email,
-            name: order.user.name,
-          },
-          external_reference: order.id,
-          back_urls: {
-            success: `${env.FRONTEND_URL}/orders/${order.id}?status=success`,
-            failure: `${env.FRONTEND_URL}/orders/${order.id}?status=failure`,
-            pending: `${env.FRONTEND_URL}/orders/${order.id}?status=pending`,
-          },
-          auto_return: 'approved',
-          notification_url: `${env.FRONTEND_URL.replace('3000', '3001')}/api/v1/payments/mercadopago/webhook`,
-        },
-      })
-
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { externalReference: preference.id },
-      })
-
-      return {
-        preferenceId: preference.id,
-        initPoint: preference.init_point,
-        sandboxInitPoint: preference.sandbox_init_point,
-        gateway: PaymentGateway.MERCADOPAGO,
-      }
-    } catch (err: any) {
-      console.warn('⚠️ Mercado Pago Error or Mock fallback:', err.message)
-      return {
-        preferenceId: `mock_pref_${order.id}`,
-        initPoint: `https://mercadopago.com.br/checkout/mock_${order.id}`,
-        gateway: PaymentGateway.MERCADOPAGO,
-        isMock: true,
-      }
-    }
-  }
-
-  // Pagamento PIX direto via Mercado Pago
   async createMercadoPagoPix(orderId: string, userId: string) {
     const order = await prisma.order.findFirst({
       where: { id: orderId, userId },
@@ -161,65 +120,107 @@ export class PaymentService {
     })
 
     if (!order) throw new NotFoundError('Pedido não encontrado')
+    if (order.paymentStatus === 'PAID') {
+      throw new BadRequestError('Este pedido já foi pago')
+    }
 
-    try {
-      const payment = await mpPayment.create({
-        body: {
-          transaction_amount: Number(order.total),
-          description: `Nexus Shop - Smartphone Pedido #${order.id.slice(-8)}`,
-          payment_method_id: 'pix',
-          payer: {
-            email: order.user.email,
-            first_name: order.user.name.split(' ')[0],
-            last_name: order.user.name.split(' ').slice(1).join(' ') || 'Cliente',
-          },
-          external_reference: order.id,
+    const { mpAccessToken, storeName } = await this.getActiveCredentials()
+    const client = new MercadoPagoConfig({ accessToken: mpAccessToken })
+    const payment = new Payment(client)
+
+    const names = (order.user.name || 'Cliente Nexus').trim().split(' ')
+    const firstName = names[0]
+    const lastName = names.slice(1).join(' ') || 'Cliente'
+
+    // Expira em 30 minutos por segurança
+    const expirationDate = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+
+    const result = await payment.create({
+      body: {
+        transaction_amount: Number(order.total),
+        description: `${storeName} - Pedido #${order.id.slice(-8)}`,
+        payment_method_id: 'pix',
+        payer: {
+          email: order.user.email,
+          first_name: firstName,
+          last_name: lastName,
         },
-      })
+        external_reference: order.id,
+        date_of_expiration: expirationDate,
+      },
+    })
 
-      const pointOfInteraction = payment.point_of_interaction?.transaction_data
+    const pointOfInteraction = result.point_of_interaction?.transaction_data
 
-      return {
-        paymentId: payment.id,
-        qrCode: pointOfInteraction?.qr_code,
-        qrCodeBase64: pointOfInteraction?.qr_code_base64,
-        ticketUrl: pointOfInteraction?.ticket_url,
-      }
-    } catch (err: any) {
-      console.warn('⚠️ MP PIX Mock fallback:', err.message)
-      return {
-        paymentId: `mock_pix_${order.id}`,
-        qrCode: `00020126580014br.gov.bcb.pix0136nexus-shop-${order.id}520400005303986540${Number(order.total).toFixed(2)}5802BR5910NEXUS SHOP6009SAO PAULO62070503***6304ABCD`,
-        qrCodeBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-        isMock: true,
-      }
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { externalReference: String(result.id) },
+    })
+
+    return {
+      paymentId: result.id,
+      qrCode: pointOfInteraction?.qr_code,
+      qrCodeBase64: pointOfInteraction?.qr_code_base64,
+      ticketUrl: pointOfInteraction?.ticket_url,
+      expiresAt: expirationDate,
     }
   }
 
-  async handleMercadoPagoWebhook(body: any) {
+  /**
+   * Webhook do Mercado Pago com verificação de assinatura HMAC-SHA256 (Anti-spoofing)
+   */
+  async handleMercadoPagoWebhook(
+    body: any,
+    xSignature?: string,
+    xRequestId?: string
+  ) {
+    const { mpAccessToken, mpWebhookSecret } = await this.getActiveCredentials()
+
+    // Validação de assinatura se o segredo estiver configurado
+    if (mpWebhookSecret && xSignature && xRequestId) {
+      const parts = xSignature.split(',')
+      let ts = ''
+      let hash = ''
+      for (const part of parts) {
+        const [k, v] = part.split('=')
+        if (k.trim() === 'ts') ts = v.trim()
+        if (k.trim() === 'v1') hash = v.trim()
+      }
+
+      const manifest = `id:${body.data?.id};request-id:${xRequestId};ts:${ts};`
+      const expectedHash = crypto
+        .createHmac('sha256', mpWebhookSecret)
+        .update(manifest)
+        .digest('hex')
+
+      if (hash !== expectedHash) {
+        throw new UnauthorizedError('Assinatura do webhook Mercado Pago inválida.')
+      }
+    }
+
     if (body.action === 'payment.created' || body.action === 'payment.updated') {
       const paymentId = body.data?.id
       if (paymentId) {
-        try {
-          const payment = await mpPayment.get({ id: paymentId })
-          if (payment.status === 'approved' && payment.external_reference) {
-            await this.completePayment(
-              payment.external_reference,
-              PaymentGateway.MERCADOPAGO,
-              String(payment.id),
-              Number(payment.transaction_amount)
-            )
-          }
-        } catch (err) {
-          console.error('Erro ao consultar Mercado Pago no Webhook:', err)
+        const client = new MercadoPagoConfig({ accessToken: mpAccessToken })
+        const mpPayment = new Payment(client)
+
+        const paymentData = await mpPayment.get({ id: paymentId })
+        if (paymentData.status === 'approved' && paymentData.external_reference) {
+          await this.completePayment(
+            paymentData.external_reference,
+            PaymentGateway.MERCADOPAGO,
+            String(paymentData.id),
+            Number(paymentData.transaction_amount)
+          )
         }
       }
     }
+
     return { received: true }
   }
 
   // ==========================================
-  // CONFIRMAÇÃO DE PAGAMENTO UNIFICADA
+  // CONFIRMAÇÃO DE PAGAMENTO & BAIXA DEFINITIVA
   // ==========================================
   async completePayment(
     orderId: string,
@@ -228,17 +229,22 @@ export class PaymentService {
     amount: number
   ) {
     return prisma.$transaction(async (tx) => {
-      // 1. Atualizar status do pedido
-      const order = await tx.order.update({
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { user: true, items: true },
+      })
+
+      if (!order) throw new NotFoundError('Pedido não localizado')
+      if (order.paymentStatus === 'PAID') return order // Idempotência garantida
+
+      const updatedOrder = await tx.order.update({
         where: { id: orderId },
         data: {
           paymentStatus: PaymentStatus.PAID,
           status: OrderStatus.CONFIRMED,
         },
-        include: { user: true },
       })
 
-      // 2. Registrar transação de pagamento
       await tx.paymentTransaction.create({
         data: {
           orderId,
@@ -249,7 +255,22 @@ export class PaymentService {
         },
       })
 
-      return order
+      // Envia confirmação por e-mail para o comprador
+      sendMail({
+        to: order.user.email,
+        subject: `Pagamento Aprovado — Pedido #${order.id.slice(-8)}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #059669; margin-top: 0;">Pagamento Confirmado com Sucesso!</h2>
+            <p>Olá, <strong>${order.user.name}</strong>. Recebemos a confirmação do seu pagamento.</p>
+            <p><strong>Pedido:</strong> #${order.id.slice(-8)}</p>
+            <p><strong>Valor:</strong> R$ ${Number(order.total).toFixed(2)}</p>
+            <p>Seu pedido já foi encaminhado para a equipe de separação e expedição.</p>
+          </div>
+        `,
+      }).catch(console.error)
+
+      return updatedOrder
     })
   }
 }

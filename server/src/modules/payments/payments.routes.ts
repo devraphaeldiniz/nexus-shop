@@ -7,10 +7,6 @@ const StripeIntentSchema = z.object({
   orderId: z.string().min(1),
 })
 
-const MercadoPagoPreferenceSchema = z.object({
-  orderId: z.string().min(1),
-})
-
 const MercadoPagoPixSchema = z.object({
   orderId: z.string().min(1),
 })
@@ -18,7 +14,7 @@ const MercadoPagoPixSchema = z.object({
 export async function paymentRoutes(app: FastifyInstance) {
   const paymentService = new PaymentService()
 
-  // 1. Criar Stripe PaymentIntent
+  // 1. Criar Stripe PaymentIntent real
   app.post(
     '/stripe/create-intent',
     { preHandler: [authenticate] },
@@ -32,28 +28,20 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
   )
 
-  // 2. Webhook Stripe
+  // 2. Webhook Stripe com validação de assinatura
   app.post('/stripe/webhook', async (request, reply) => {
-    // In fastify, the body is parsed or raw depending on configuration
-    const result = await paymentService.handleStripeWebhook(request.body)
+    const signature = request.headers['stripe-signature'] as string
+    if (!signature) {
+      return reply.status(400).send({ error: 'Assinatura stripe-signature ausente' })
+    }
+    const result = await paymentService.handleStripeWebhook(
+      JSON.stringify(request.body),
+      signature
+    )
     return reply.send(result)
   })
 
-  // 3. Criar Mercado Pago Checkout Preference
-  app.post(
-    '/mercadopago/create-preference',
-    { preHandler: [authenticate] },
-    async (request, reply) => {
-      const { orderId } = MercadoPagoPreferenceSchema.parse(request.body)
-      const result = await paymentService.createMercadoPagoPreference(
-        orderId,
-        request.user!.userId
-      )
-      return reply.send(result)
-    }
-  )
-
-  // 4. Criar Mercado Pago PIX
+  // 3. Criar PIX Real via Mercado Pago
   app.post(
     '/mercadopago/create-pix',
     { preHandler: [authenticate] },
@@ -67,25 +55,15 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
   )
 
-  // 5. Webhook Mercado Pago
+  // 4. Webhook Mercado Pago com validação HMAC
   app.post('/mercadopago/webhook', async (request, reply) => {
-    const result = await paymentService.handleMercadoPagoWebhook(request.body)
+    const xSignature = request.headers['x-signature'] as string | undefined
+    const xRequestId = request.headers['x-request-id'] as string | undefined
+    const result = await paymentService.handleMercadoPagoWebhook(
+      request.body,
+      xSignature,
+      xRequestId
+    )
     return reply.send(result)
   })
-
-  // 6. Simular confirmação de pagamento para ambiente de testes / demonstração
-  app.post(
-    '/simulate-confirm',
-    { preHandler: [authenticate] },
-    async (request, reply) => {
-      const { orderId, gateway } = request.body as { orderId: string; gateway: string }
-      const order = await paymentService.completePayment(
-        orderId,
-        gateway === 'MERCADOPAGO' ? 'MERCADOPAGO' : 'STRIPE',
-        `sim_${Date.now()}`,
-        100
-      )
-      return reply.send({ success: true, order })
-    }
-  )
 }

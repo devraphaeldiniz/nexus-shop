@@ -1,9 +1,8 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ShieldCheck,
   CreditCard,
   QrCode,
   Truck,
@@ -11,400 +10,548 @@ import {
   CheckCircle,
   Lock,
   ArrowRight,
+  Copy,
+  Check,
+  AlertCircle,
 } from 'lucide-react'
 import { useCartStore } from '../../store/useCartStore'
+import { useAuthStore } from '../../store/useAuthStore'
 import { formatCurrency } from '../../lib/utils'
 
 export default function CheckoutPage() {
   const router = useRouter()
   const { items, subtotal, clearCart } = useCartStore()
+  const { user, accessToken, isAuthenticated } = useAuthStore()
 
-  // Estados do formulário
+  const [mounted, setMounted] = useState(false)
   const [address, setAddress] = useState({
-    street: 'Av. Paulista',
-    number: '1000',
-    complement: 'Apt 42',
-    neighborhood: 'Bela Vista',
-    city: 'São Paulo',
-    state: 'SP',
-    zipCode: '01310-100',
+    street: '',
+    number: '',
+    complement: '',
+    neighborhood: '',
+    city: '',
+    state: '',
+    zipCode: '',
   })
 
-  const [paymentGateway, setPaymentGateway] = useState<'STRIPE' | 'MERCADOPAGO'>('MERCADOPAGO')
-  const [paymentMethod, setPaymentMethod] = useState<'PIX' | 'CREDIT_CARD'>('PIX')
+  const [shippingOptions, setShippingOptions] = useState<any[]>([])
+  const [selectedShipping, setSelectedShipping] = useState<any>(null)
+  const [loadingShipping, setLoadingShipping] = useState(false)
+
+  const [gateways, setGateways] = useState<{ stripe: boolean; mercadoPago: boolean }>({
+    stripe: true,
+    mercadoPago: true,
+  })
+  const [selectedGateway, setSelectedGateway] = useState<'MERCADOPAGO' | 'STRIPE'>('MERCADOPAGO')
+  const [selectedMethod, setSelectedMethod] = useState<'PIX' | 'CREDIT_CARD'>('PIX')
+
   const [couponCode, setCouponCode] = useState('')
   const [discount, setDiscount] = useState(0)
   const [couponApplied, setCouponApplied] = useState(false)
   const [couponError, setCouponError] = useState('')
+
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [orderSuccess, setOrderSuccess] = useState<any>(null)
+  const [pixData, setPixData] = useState<{ qrCode?: string; qrCodeBase64?: string } | null>(null)
+  const [createdOrder, setCreatedOrder] = useState<any>(null)
+  const [copiedPix, setCopiedPix] = useState(false)
 
-  const rawSubtotal = subtotal()
-  const shippingCost = rawSubtotal > 3000 ? 0 : 49.9
-  const total = Math.max(0, rawSubtotal - discount + shippingCost)
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
 
-  const handleApplyCoupon = (e: React.FormEvent) => {
-    e.preventDefault()
-    setCouponError('')
+  useEffect(() => {
+    setMounted(true)
+    loadStoreSettings()
+  }, [])
 
-    const code = couponCode.trim().toUpperCase()
-    if (code === 'NEXUS10') {
-      const disc = rawSubtotal * 0.1
-      setDiscount(disc)
-      setCouponApplied(true)
-    } else if (code === 'PRIMEIRACOMPRA') {
-      setDiscount(150)
-      setCouponApplied(true)
-    } else {
-      setCouponError('Cupom inválido ou expirado.')
+  const loadStoreSettings = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/settings/public`)
+      if (res.ok) {
+        const data = await res.json()
+        setGateways({
+          stripe: data.paymentGateways?.stripe?.enabled ?? true,
+          mercadoPago: data.paymentGateways?.mercadoPago?.enabled ?? true,
+        })
+      }
+    } catch {}
+  }
+
+  // Busca de CEP oficial
+  const handleZipCodeBlur = async () => {
+    const cleanZip = address.zipCode.replace(/\D/g, '')
+    if (cleanZip.length !== 8) return
+
+    setLoadingShipping(true)
+    try {
+      const res = await fetch(`${apiUrl}/shipping/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zipCode: cleanZip, subtotal: subtotal() }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        if (data.address) {
+          setAddress((prev) => ({
+            ...prev,
+            city: data.address.city || prev.city,
+            state: data.address.state || prev.state,
+            neighborhood: data.address.neighborhood || prev.neighborhood,
+            street: data.address.street || prev.street,
+          }))
+        }
+        setShippingOptions(data.options || [])
+        if (data.options?.length > 0) {
+          setSelectedShipping(data.options[0])
+        }
+      }
+    } catch {
+    } finally {
+      setLoadingShipping(false)
     }
   }
 
-  const handlePlaceOrder = async () => {
-    if (items.length === 0) return
-    setIsSubmitting(true)
+  // Aplicar Cupom Real via Backend
+  const handleApplyCoupon = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCouponError('')
+    if (!couponCode.trim()) return
 
     try {
-      // Simulação rápida caso backend esteja em mock
-      const mockOrder = {
-        id: `nex_${Date.now().toString().slice(-6)}`,
-        status: 'CONFIRMED',
-        paymentGateway,
-        paymentMethod,
-        total,
-        address,
+      const res = await fetch(`${apiUrl}/coupons/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ code: couponCode.trim(), orderAmount: subtotal() }),
+      })
+
+      const data = await res.json()
+      if (res.ok && data.valid) {
+        setDiscount(data.coupon.discountAmount)
+        setCouponApplied(true)
+      } else {
+        setCouponError(data.message || 'Cupom inválido ou expirado.')
+        setDiscount(0)
+        setCouponApplied(false)
+      }
+    } catch {
+      setCouponError('Não foi possível validar o cupom.')
+    }
+  }
+
+  // Enviar Pedido Real
+  const handlePlaceOrder = async () => {
+    if (!isAuthenticated) {
+      alert('Você precisa estar logado para concluir a compra.')
+      router.push('/login')
+      return
+    }
+
+    if (!address.street || !address.number || !address.city || !address.state) {
+      alert('Por favor, preencha o endereço completo de entrega.')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      // 1. Cadastrar endereço ou usar o selecionado
+      const orderPayload = {
+        addressId: 'temp_address', // O backend associa com o usuário
+        paymentGateway: selectedGateway,
+        paymentMethod: selectedMethod,
+        couponCode: couponApplied ? couponCode.trim() : undefined,
       }
 
-      setTimeout(() => {
-        setOrderSuccess(mockOrder)
-        clearCart()
+      // 2. Chamar endpoint de criação de pedido
+      const res = await fetch(`${apiUrl}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(orderPayload),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        alert(data.message || 'Falha ao registrar pedido.')
         setIsSubmitting(false)
-      }, 1200)
-    } catch {
+        return
+      }
+
+      const order = data.order
+      setCreatedOrder(order)
+      clearCart()
+
+      // 3. Se for PIX no Mercado Pago, gera o QR Code e código copia-e-cola
+      if (selectedGateway === 'MERCADOPAGO' && selectedMethod === 'PIX') {
+        const pixRes = await fetch(`${apiUrl}/payments/mercadopago/create-pix`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ orderId: order.id }),
+        })
+
+        if (pixRes.ok) {
+          const pixResult = await pixRes.json()
+          setPixData(pixResult)
+        }
+      }
+    } catch (err) {
+      alert('Erro ao processar pedido. Tente novamente.')
+    } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (orderSuccess) {
+  const copyPixCode = () => {
+    if (pixData?.qrCode) {
+      navigator.clipboard.writeText(pixData.qrCode)
+      setCopiedPix(true)
+      setTimeout(() => setCopiedPix(false), 2500)
+    }
+  }
+
+  if (!mounted) return null
+
+  // Tela de Pedido Concluído / Pagamento Pendente PIX
+  if (createdOrder) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-6">
-        <div className="w-20 h-20 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
-          <CheckCircle className="w-10 h-10" />
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-6">
+        <div className="w-16 h-16 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-400 flex items-center justify-center mx-auto">
+          <CheckCircle className="w-8 h-8" />
         </div>
-        <h1 className="text-3xl font-black text-white">Pedido Realizado com Sucesso!</h1>
-        <p className="text-slate-300 text-sm">
-          Número do pedido: <strong className="text-indigo-400 font-mono">#{orderSuccess.id}</strong>
+        <h1 className="text-2xl font-bold text-white tracking-tight">Pedido Registrado com Sucesso!</h1>
+        <p className="text-xs text-slate-400">
+          Identificador do pedido: <span className="font-mono font-bold text-indigo-400">#{createdOrder.id.slice(-8)}</span>
         </p>
 
-        {/* Detalhes do Pagamento */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-left space-y-4">
-          <div className="flex justify-between items-center pb-4 border-b border-slate-800">
-            <div>
-              <p className="text-xs text-slate-400">Total Pago</p>
-              <p className="text-xl font-bold text-white">{formatCurrency(orderSuccess.total)}</p>
+        {pixData?.qrCode && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-left space-y-4">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+              <QrCode className="w-4 h-4" />
+              <span>Pague via PIX para Liberação Imediata</span>
             </div>
-            <span className="px-3 py-1 bg-emerald-950 text-emerald-400 border border-emerald-800 text-xs font-bold rounded-full">
-              PAGAMENTO CONFIRMADO
-            </span>
-          </div>
 
-          <div className="text-xs text-slate-300 space-y-1">
-            <p className="font-semibold text-white">Endereço de Entrega:</p>
-            <p>
-              {orderSuccess.address.street}, {orderSuccess.address.number} - {orderSuccess.address.city}/{orderSuccess.address.state}
+            {pixData.qrCodeBase64 && (
+              <div className="flex justify-center p-4 bg-white rounded-xl max-w-[200px] mx-auto">
+                <img
+                  src={`data:image/png;base64,${pixData.qrCodeBase64}`}
+                  alt="QR Code PIX"
+                  className="w-full h-auto"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1">Código Copia e Cola PIX:</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={pixData.qrCode}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-slate-300 font-mono truncate"
+                />
+                <button
+                  onClick={copyPixCode}
+                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 flex-shrink-0"
+                >
+                  {copiedPix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedPix ? 'Copiado!' : 'Copiar'}</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-400 text-center">
+              Abra o app do seu banco, escolha <strong>PIX Copia e Cola</strong> e conclua o pagamento.
+              A confirmação é automática.
             </p>
-            <p className="text-slate-400">Previsão de entrega: 2 a 4 dias úteis via Envio Expresso com seguro.</p>
           </div>
-        </div>
+        )}
 
         <button
           onClick={() => router.push('/products')}
-          className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg transition-colors"
+          className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg"
         >
-          Continuar Comprando
+          Voltar para a Loja
         </button>
       </div>
     )
   }
 
+  const rawSubtotal = subtotal()
+  const shippingCost = selectedShipping?.price ?? (rawSubtotal > 3000 ? 0 : 39.9)
+  const total = Math.max(0, rawSubtotal - discount + shippingCost)
+
   if (items.length === 0) {
     return (
       <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
-        <h2 className="text-xl font-bold text-white">Seu carrinho está vazio</h2>
-        <p className="text-xs text-slate-400">Adicione um smartphone ao carrinho antes de prosseguir com o checkout.</p>
+        <h2 className="text-base font-bold text-white">Seu carrinho está vazio</h2>
+        <p className="text-xs text-slate-400">Adicione ao menos um smartphone ao carrinho para finalizar a compra.</p>
         <button
           onClick={() => router.push('/products')}
-          className="px-6 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl"
+          className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg"
         >
-          Ir para o Catálogo
+          Explorar Catálogo
         </button>
       </div>
     )
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       <div className="border-b border-slate-800 pb-4">
-        <h1 className="text-3xl font-black text-white">Finalização de Pedido</h1>
-        <p className="text-xs text-slate-400 mt-1">Ambiente seguro com criptografia de ponta a ponta (TLS 1.3)</p>
+        <h1 className="text-2xl font-bold text-white tracking-tight">Finalização da Compra</h1>
+        <p className="text-xs text-slate-400 mt-1">Ambiente protegido com criptografia bancária</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-        {/* ==================== FORMULÁRIO DE CHECKOUT ==================== */}
-        <div className="lg:col-span-7 space-y-8">
-          {/* 1. Endereço */}
-          <section className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Formulário de Endereço & Pagamento */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* 1. Endereço com Busca de CEP Oficial */}
+          <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <Truck className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-base font-bold text-white">1. Endereço de Entrega</h2>
+              <Truck className="w-4 h-4 text-indigo-400" />
+              <h2 className="text-sm font-bold text-white">1. Endereço e Cálculo de Frete</h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="text-slate-400 mb-1 block">CEP</label>
-                <input
-                  type="text"
-                  value={address.zipCode}
-                  onChange={(e) => setAddress({ ...address, zipCode: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
-                />
+                <label className="text-slate-400 mb-1 block">CEP *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="00000-000"
+                    value={address.zipCode}
+                    onChange={(e) => setAddress({ ...address, zipCode: e.target.value })}
+                    onBlur={handleZipCodeBlur}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
+                  />
+                  {loadingShipping && (
+                    <span className="absolute right-3 top-3 text-[10px] text-indigo-400 animate-pulse">
+                      Consultando...
+                    </span>
+                  )}
+                </div>
               </div>
+
               <div>
                 <label className="text-slate-400 mb-1 block">Cidade / UF</label>
                 <input
                   type="text"
-                  value={`${address.city} - ${address.state}`}
+                  placeholder="Preenchimento automático"
+                  value={address.city ? `${address.city} - ${address.state}` : ''}
                   readOnly
-                  className="w-full bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 text-slate-400"
+                  className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-slate-300"
                 />
               </div>
+
               <div className="sm:col-span-2">
-                <label className="text-slate-400 mb-1 block">Logradouro / Rua</label>
+                <label className="text-slate-400 mb-1 block">Logradouro / Rua *</label>
                 <input
                   type="text"
+                  placeholder="Rua, Avenida, Praça..."
                   value={address.street}
                   onChange={(e) => setAddress({ ...address, street: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
                 />
               </div>
+
               <div>
-                <label className="text-slate-400 mb-1 block">Número</label>
+                <label className="text-slate-400 mb-1 block">Número *</label>
                 <input
                   type="text"
+                  placeholder="123"
                   value={address.number}
                   onChange={(e) => setAddress({ ...address, number: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
                 />
               </div>
+
               <div>
                 <label className="text-slate-400 mb-1 block">Complemento</label>
                 <input
                   type="text"
+                  placeholder="Apto, Bloco (opcional)"
                   value={address.complement}
                   onChange={(e) => setAddress({ ...address, complement: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
                 />
               </div>
             </div>
+
+            {/* Opções de Envio Retornadas pelo Backend */}
+            {shippingOptions.length > 0 && (
+              <div className="pt-3 border-t border-slate-800 space-y-2">
+                <p className="text-xs font-semibold text-slate-300">Selecione o Tipo de Frete:</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {shippingOptions.map((opt) => (
+                    <div
+                      key={opt.id}
+                      onClick={() => setSelectedShipping(opt)}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedShipping?.id === opt.id
+                          ? 'border-indigo-500 bg-indigo-950/20'
+                          : 'border-slate-800 bg-slate-950/40'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-semibold text-white">{opt.name}</span>
+                        <span className="font-bold text-emerald-400">
+                          {opt.price === 0 ? 'Grátis' : formatCurrency(opt.price)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Prazo: {opt.deadline}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
-          {/* 2. Seleção de Gateway de Pagamento */}
-          <section className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+          {/* 2. Seleção de Gateway e Pagamento Real */}
+          <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-base font-bold text-white">2. Método de Pagamento</h2>
+              <CreditCard className="w-4 h-4 text-indigo-400" />
+              <h2 className="text-sm font-bold text-white">2. Forma de Pagamento</h2>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Mercado Pago */}
-              <div
-                onClick={() => {
-                  setPaymentGateway('MERCADOPAGO')
-                  setPaymentMethod('PIX')
-                }}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                  paymentGateway === 'MERCADOPAGO'
-                    ? 'border-indigo-500 bg-indigo-950/20'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">Mercado Pago</span>
-                  <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded-full">
-                    PIX 10% OFF
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Pague no PIX com confirmação em segundos ou parcele no cartão nacional.
-                </p>
-              </div>
-
-              {/* Stripe */}
-              <div
-                onClick={() => {
-                  setPaymentGateway('STRIPE')
-                  setPaymentMethod('CREDIT_CARD')
-                }}
-                className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
-                  paymentGateway === 'STRIPE'
-                    ? 'border-indigo-500 bg-indigo-950/20'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-white">Stripe</span>
-                  <span className="text-[10px] text-indigo-400 font-bold bg-indigo-950 border border-indigo-800 px-2 py-0.5 rounded-full">
-                    Internacional
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Cartão de Crédito global (Visa, Master, Amex, Apple Pay) com proteção Stripe Radar.
-                </p>
-              </div>
-            </div>
-
-            {/* Opções específicas do gateway selecionado */}
-            {paymentGateway === 'MERCADOPAGO' && (
-              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
-                <div className="flex items-center gap-2">
-                  <QrCode className="w-5 h-5 text-emerald-400" />
-                  <span className="text-xs font-bold text-white">Pagamento via PIX Instantâneo</span>
-                </div>
-                <p className="text-xs text-slate-400">
-                  O QR Code oficial do Banco Central será gerado e exibido imediatamente após a confirmação.
-                </p>
-              </div>
-            )}
-
-            {paymentGateway === 'STRIPE' && (
-              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
-                <div className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-indigo-400" />
-                  <span className="text-xs font-bold text-white">Formulário Seguro Stripe Elements</span>
-                </div>
-                <div className="space-y-2 text-xs">
-                  <input
-                    type="text"
-                    placeholder="Número do Cartão (•••• •••• •••• ••••)"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      placeholder="MM/AA"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
-                    />
-                    <input
-                      type="text"
-                      placeholder="CVC"
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white"
-                    />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {gateways.mercadoPago && (
+                <div
+                  onClick={() => {
+                    setSelectedGateway('MERCADOPAGO')
+                    setSelectedMethod('PIX')
+                  }}
+                  className={`p-4 rounded-xl border cursor-pointer transition-colors ${
+                    selectedGateway === 'MERCADOPAGO'
+                      ? 'border-indigo-500 bg-indigo-950/20'
+                      : 'border-slate-800'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold text-white">PIX (Mercado Pago)</span>
+                    <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950 border border-emerald-800 px-1.5 py-0.5 rounded">
+                      Liberação Imediata
+                    </span>
                   </div>
+                  <p className="text-[11px] text-slate-400">
+                    Gera QR Code oficial para pagamento direto no app do seu banco.
+                  </p>
                 </div>
-              </div>
-            )}
+              )}
+
+              {gateways.stripe && (
+                <div
+                  onClick={() => {
+                    setSelectedGateway('STRIPE')
+                    setSelectedMethod('CREDIT_CARD')
+                  }}
+                  className={`p-4 rounded-xl border cursor-pointer transition-colors ${
+                    selectedGateway === 'STRIPE'
+                      ? 'border-indigo-500 bg-indigo-950/20'
+                      : 'border-slate-800'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold text-white">Cartão de Crédito</span>
+                    <span className="text-[10px] font-semibold text-indigo-400 bg-indigo-950 border border-indigo-800 px-1.5 py-0.5 rounded">
+                      Até 12x
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Processamento seguro via Stripe com proteção antifraude.
+                  </p>
+                </div>
+              )}
+            </div>
           </section>
         </div>
 
-        {/* ==================== RESUMO DO PEDIDO ==================== */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-            <h2 className="text-base font-bold text-white">Resumo dos Smartphones</h2>
+        {/* Resumo do Pedido & Ação */}
+        <div className="lg:col-span-5 space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+            <h2 className="text-sm font-bold text-white">Itens do Pedido ({items.length})</h2>
 
-            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
               {items.map((item) => (
                 <div key={item.id} className="flex gap-3 text-xs">
                   <img
-                    src={item.image}
+                    src={item.image || 'https://via.placeholder.com/60'}
                     alt={item.name}
-                    className="w-12 h-12 object-cover rounded-lg bg-slate-800"
+                    className="w-10 h-10 object-cover rounded bg-slate-800 flex-shrink-0"
                   />
-                  <div className="flex-1">
-                    <p className="font-semibold text-white line-clamp-1">{item.name}</p>
-                    <p className="text-slate-400 text-[10px]">
-                      Qtd: {item.quantity} · {item.color} · {item.storage}
-                    </p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-white truncate">{item.name}</p>
+                    <p className="text-slate-400 text-[10px]">Qtd: {item.quantity}</p>
                   </div>
-                  <span className="font-bold text-white">
+                  <span className="font-semibold text-white">
                     {formatCurrency(item.price * item.quantity)}
                   </span>
                 </div>
               ))}
             </div>
 
-            {/* Cupom de Desconto */}
-            <form onSubmit={handleApplyCoupon} className="pt-4 border-t border-slate-800">
-              <label className="text-xs font-semibold text-slate-300 block mb-2">
-                Possui Cupom Promocional?
-              </label>
+            {/* Cupom */}
+            <form onSubmit={handleApplyCoupon} className="pt-3 border-t border-slate-800">
+              <label className="text-[11px] font-medium text-slate-300 block mb-1.5">Cupom Promocional</label>
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Ex: NEXUS10 ou PRIMEIRACOMPRA"
+                  placeholder="Código do cupom"
                   value={couponCode}
                   onChange={(e) => setCouponCode(e.target.value)}
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white uppercase placeholder-slate-500"
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white uppercase"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs rounded-lg border border-slate-700"
                 >
                   Aplicar
                 </button>
               </div>
               {couponApplied && (
-                <p className="text-[11px] text-emerald-400 font-semibold mt-1.5 flex items-center gap-1">
-                  <Tag className="w-3.5 h-3.5" /> Cupom de desconto aplicado com sucesso!
-                </p>
+                <p className="text-[10px] text-emerald-400 font-medium mt-1">Cupom aplicado com sucesso!</p>
               )}
               {couponError && (
-                <p className="text-[11px] text-rose-400 mt-1.5">{couponError}</p>
+                <p className="text-[10px] text-rose-400 mt-1">{couponError}</p>
               )}
             </form>
 
-            {/* Cálculos */}
-            <div className="space-y-2 pt-4 border-t border-slate-800 text-xs">
+            {/* Totais */}
+            <div className="space-y-1.5 pt-3 border-t border-slate-800 text-xs">
               <div className="flex justify-between text-slate-400">
                 <span>Subtotal</span>
                 <span>{formatCurrency(rawSubtotal)}</span>
               </div>
               {discount > 0 && (
-                <div className="flex justify-between text-emerald-400 font-medium">
-                  <span>Desconto de Cupom</span>
+                <div className="flex justify-between text-emerald-400">
+                  <span>Desconto</span>
                   <span>- {formatCurrency(discount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-slate-400">
-                <span>Frete Seguro</span>
-                <span className="text-emerald-400">
-                  {shippingCost === 0 ? 'Grátis' : formatCurrency(shippingCost)}
-                </span>
+                <span>Frete</span>
+                <span>{shippingCost === 0 ? 'Grátis' : formatCurrency(shippingCost)}</span>
               </div>
-              <div className="flex justify-between text-base font-extrabold text-white pt-2 border-t border-slate-800">
-                <span>Total a Pagar</span>
-                <span className="text-indigo-400 text-lg">{formatCurrency(total)}</span>
+              <div className="flex justify-between text-sm font-bold text-white pt-2 border-t border-slate-800">
+                <span>Total</span>
+                <span className="text-indigo-400">{formatCurrency(total)}</span>
               </div>
             </div>
 
             <button
               onClick={handlePlaceOrder}
               disabled={isSubmitting}
-              className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-sm rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg flex items-center justify-center gap-2 transition-colors shadow-sm"
             >
-              {isSubmitting ? (
-                <span>Processando Pagamento...</span>
-              ) : (
-                <>
-                  <span>Confirmar & Pagar Agora</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              <span>{isSubmitting ? 'Gerando Cobrança...' : 'Confirmar Pedido & Pagar'}</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
-
-            <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Garantia de Entrega Nexus ou seu Dinheiro de Volta</span>
-            </div>
           </div>
         </div>
       </div>

@@ -6,6 +6,8 @@ import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
+import fastifyStatic from '@fastify/static'
+import path from 'path'
 import { ZodError } from 'zod'
 
 import { env } from './config/env.js'
@@ -23,6 +25,8 @@ import { reviewRoutes } from './modules/reviews/reviews.routes.js'
 import { wishlistRoutes } from './modules/wishlist/wishlist.routes.js'
 import { adminRoutes } from './modules/admin/admin.routes.js'
 import { settingsRoutes } from './modules/settings/settings.routes.js'
+import { uploadRoutes } from './modules/upload/upload.routes.js'
+import { shippingRoutes } from './modules/shipping/shipping.routes.js'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -81,6 +85,13 @@ export async function buildApp(): Promise<FastifyInstance> {
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB
     },
+  })
+
+  // 4.1 ARQUIVOS ESTÁTICOS / UPLOADS DE PRODUTOS
+  const uploadsPath = path.resolve(process.cwd(), 'uploads')
+  await app.register(fastifyStatic, {
+    root: uploadsPath,
+    prefix: '/uploads/',
   })
 
   // 5. DOCUMENTAÇÃO SWAGGER / OPENAPI
@@ -154,6 +165,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       apiV1.register(wishlistRoutes, { prefix: '/wishlist' })
       apiV1.register(adminRoutes, { prefix: '/admin' })
       apiV1.register(settingsRoutes, { prefix: '/settings' })
+      apiV1.register(uploadRoutes, { prefix: '/upload' })
+      apiV1.register(shippingRoutes, { prefix: '/shipping' })
     },
     { prefix: '/api/v1' }
   )

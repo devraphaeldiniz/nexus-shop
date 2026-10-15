@@ -9,19 +9,29 @@ declare module 'fastify' {
 }
 
 export async function authenticate(request: FastifyRequest, _reply: FastifyReply) {
-  const authHeader = request.headers.authorization
+  let token: string | undefined
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new UnauthorizedError('Token de autenticação não fornecido')
+  // 1. Prioriza Cookie httpOnly seguro
+  const cookieToken = request.cookies?.access_token
+  if (cookieToken) {
+    token = cookieToken
+  } else {
+    // 2. Fallback para header Authorization se fornecido
+    const authHeader = request.headers.authorization
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7)
+    }
   }
 
-  const token = authHeader.substring(7)
+  if (!token) {
+    throw new UnauthorizedError('Sessão expirada ou não autenticada')
+  }
 
   try {
     const payload = verifyAccessToken(token)
     request.user = payload
   } catch (error) {
-    throw new UnauthorizedError('Token de autenticação inválido ou expirado')
+    throw new UnauthorizedError('Sessão inválida ou expirada. Faça login novamente.')
   }
 }
 
