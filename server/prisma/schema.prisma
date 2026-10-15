@@ -40,6 +40,31 @@ enum PaymentMethod {
   BOLETO
 }
 
+model StoreSettings {
+  id                    String   @id @default("default")
+  storeName             String   @default("Nexus Shop")
+  legalName             String?  // Razão Social
+  documentNumber        String?  // CNPJ / CPF
+  contactEmail          String?
+  contactPhone          String?
+  supportWhatsapp       String?
+  freeShippingThreshold Decimal  @default(0) @db.Decimal(10, 2) // 0 = desativado
+  
+  // Configurações de Pagamento do Lojista
+  stripeEnabled         Boolean  @default(false)
+  stripePublishableKey  String?
+  stripeSecretKey       String?
+  
+  mercadoPagoEnabled    Boolean  @default(false)
+  mercadoPagoPublicKey  String?
+  mercadoPagoAccessToken String?
+  pixKey                String?  // Chave PIX direta se aplicável
+
+  updatedAt             DateTime @updatedAt
+
+  @@map("store_settings")
+}
+
 model User {
   id                   String    @id @default(cuid())
   email                String    @unique

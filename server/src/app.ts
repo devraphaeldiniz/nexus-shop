@@ -22,6 +22,7 @@ import { couponRoutes } from './modules/coupons/coupons.routes.js'
 import { reviewRoutes } from './modules/reviews/reviews.routes.js'
 import { wishlistRoutes } from './modules/wishlist/wishlist.routes.js'
 import { adminRoutes } from './modules/admin/admin.routes.js'
+import { settingsRoutes } from './modules/settings/settings.routes.js'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -152,6 +153,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       apiV1.register(reviewRoutes, { prefix: '/reviews' })
       apiV1.register(wishlistRoutes, { prefix: '/wishlist' })
       apiV1.register(adminRoutes, { prefix: '/admin' })
+      apiV1.register(settingsRoutes, { prefix: '/settings' })
     },
     { prefix: '/api/v1' }
   )

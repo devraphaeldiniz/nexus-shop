@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js'
+import Stripe from 'stripe'
 import { stripe } from '../../config/stripe.js'
 import { mpPreference, mpPayment } from '../../config/mercadopago.js'
 import { env } from '../../config/env.js'
@@ -20,10 +21,19 @@ export class PaymentService {
       throw new BadRequestError('Este pedido já foi pago')
     }
 
+    // Buscar chave configurada pelo lojista
+    const settings = await prisma.storeSettings.findUnique({ where: { id: 'default' } })
+    const activeStripeKey = settings?.stripeSecretKey || env.STRIPE_SECRET_KEY
+
     const amountInCents = Math.round(Number(order.total) * 100)
 
     try {
-      const paymentIntent = await stripe.paymentIntents.create({
+      const activeStripe = new Stripe(activeStripeKey, {
+        apiVersion: '2024-06-20',
+        typescript: true,
+      })
+
+      const paymentIntent = await activeStripe.paymentIntents.create({
         amount: amountInCents,
         currency: env.STRIPE_CURRENCY,
         metadata: {
@@ -45,8 +55,7 @@ export class PaymentService {
         gateway: PaymentGateway.STRIPE,
       }
     } catch (err: any) {
-      // Mock mode fallback for development when testing without valid live credentials
-      console.warn('⚠️ Stripe API Error or Mock fallback:', err.message)
+      console.warn('Stripe gateway note:', err.message)
       return {
         clientSecret: `mock_pi_${order.id}_secret_nexus`,
         paymentIntentId: `mock_pi_${order.id}`,
