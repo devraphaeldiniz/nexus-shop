@@ -1,25 +1,27 @@
-# 📱 Nexus Shop — E-Commerce de Smartphones de Ponta a Ponta
+﻿# 🛍️ Nexus Shop 📱 E-Commerce de Smartphones de Ponta a Ponta
 
-Plataforma completa de e-commerce especializada em smartphones, com arquitetura moderna, alta performance, segurança rigorosa e múltiplos gateways de pagamento (Stripe & Mercado Pago).
+> **Nota:** Este repositório é o **e-commerce full stack de smartphones** (Next.js + Fastify + Prisma). Não é a plataforma de gestão de associados **nexus** nem o marketplace **nexus-commerce**. â€” E-Commerce de Smartphones de Ponta a Ponta
+
+Plataforma completa de e-commerce especializada em smartphones, com arquitetura moderna, alta performance, seguranÃ§a rigorosa e mÃºltiplos gateways de pagamento (Stripe & Mercado Pago).
 
 ---
 
-## 🏗️ Arquitetura e Stack Tecnológica
+## ðŸ—ï¸ Arquitetura e Stack TecnolÃ³gica
 
 - **Frontend**: Next.js 14+ (App Router), TypeScript, Tailwind CSS, Zustand, Lucide React
 - **Backend**: Node.js + Fastify, TypeScript, Prisma ORM
-- **Banco de Dados**: PostgreSQL 16 (dados relacionais) + Redis 7 (cache e sessões)
-- **Autenticação**: JWT (Access Token + Refresh Token rotativo) + Google OAuth + RBAC (Customer/Admin)
-- **Gateways de Pagamento**: Stripe (Cartão/Internacional) & Mercado Pago (PIX/Boleto/Cartão)
-- **Segurança**: Fastify Helmet, CORS, Rate Limit distribuído, sanitização, validação Zod rigorosa, CSRF, TLS/HSTS
-- **Testes**: Vitest (Unitários & Integração) + Playwright (E2E)
+- **Banco de Dados**: PostgreSQL 16 (dados relacionais) + Redis 7 (cache e sessÃµes)
+- **AutenticaÃ§Ã£o**: JWT (Access Token + Refresh Token rotativo) + Google OAuth + RBAC (Customer/Admin)
+- **Gateways de Pagamento**: Stripe (CartÃ£o/Internacional) & Mercado Pago (PIX/Boleto/CartÃ£o)
+- **SeguranÃ§a**: Fastify Helmet, CORS, Rate Limit distribuÃ­do, sanitizaÃ§Ã£o, validaÃ§Ã£o Zod rigorosa, CSRF, TLS/HSTS
+- **Testes**: Vitest (UnitÃ¡rios & IntegraÃ§Ã£o) + Playwright (E2E)
 - **Infraestrutura**: Docker & Docker Compose, GitHub Actions CI/CD
 
 ---
 
-## 🚀 Como Executar
+## ðŸš€ Como Executar
 
-### 1. Pré-requisitos
+### 1. PrÃ©-requisitos
 - Node.js 20+
 - Docker & Docker Compose
 
@@ -37,7 +39,7 @@ npx prisma migrate dev --name init
 npx prisma db seed
 npm run dev
 # API rodando em http://localhost:3001
-# Documentação Swagger em http://localhost:3001/documentation
+# DocumentaÃ§Ã£o Swagger em http://localhost:3001/documentation
 ```
 
 ### 4. Frontend (Next.js)
@@ -46,5 +48,6 @@ cd client
 cp .env.example .env.local
 npm install
 npm run dev
-# Aplicação rodando em http://localhost:3000
+# AplicaÃ§Ã£o rodando em http://localhost:3000
 ```
+
