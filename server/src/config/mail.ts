@@ -1,14 +1,16 @@
 import nodemailer from 'nodemailer'
 import { env } from './env.js'
 
-export const mailTransporter = nodemailer.createTransport({
-  host: env.SMTP_HOST,
-  port: env.SMTP_PORT,
-  auth: {
-    user: env.SMTP_USER,
-    pass: env.SMTP_PASS,
-  },
-})
+/** Sem SMTP_HOST (ex.: vitrine de portfólio) os e-mails são só registrados no log. */
+export const mailEnabled = !!env.SMTP_HOST
+
+export const mailTransporter = mailEnabled
+  ? nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+    })
+  : null
 
 export async function sendMail(options: {
   to: string
@@ -18,6 +20,10 @@ export async function sendMail(options: {
 }) {
   // Testes automatizados não enviam e-mail
   if (env.NODE_ENV === 'test') return null
+  if (!mailTransporter) {
+    console.info(`E-mail não enviado (SMTP não configurado): "${options.subject}" para ${options.to}`)
+    return null
+  }
 
   try {
     const info = await mailTransporter.sendMail({

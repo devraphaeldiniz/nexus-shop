@@ -65,10 +65,11 @@ const envSchema = z.object({
   MERCADOPAGO_ACCESS_TOKEN: devOnlyDefault('APP_USR_mock_mercadopago_token'),
   MERCADOPAGO_WEBHOOK_SECRET: devOnlyDefault('mock_mp_secret'),
 
-  SMTP_HOST: devDefault(z.string().min(1), 'smtp.mailtrap.io'),
+  // E-mail é opcional: sem SMTP_HOST a loja funciona normalmente, só não envia e-mails
+  SMTP_HOST: devOnlyDefault('smtp.mailtrap.io'),
   SMTP_PORT: z.coerce.number().default(2525),
-  SMTP_USER: devDefault(z.string().min(1), 'mock_user'),
-  SMTP_PASS: devDefault(z.string().min(1), 'mock_pass'),
+  SMTP_USER: devOnlyDefault('mock_user'),
+  SMTP_PASS: devOnlyDefault('mock_pass'),
   SMTP_FROM: z.string().default('Nexus Shop <nao-responda@nexusshop.com>'),
 })
 
