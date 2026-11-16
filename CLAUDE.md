@@ -63,7 +63,6 @@ Em `NODE_ENV=production` não há defaults: a API encerra com a lista do que fal
 ```
 nexus-shop/
 ├── .github/workflows/ci-cd.yml   # server (lint, tsc, migrate, testes), client (lint, tsc, build), e2e, audit (informativo), docker
-├── .github/dependabot.yml
 ├── docker-compose.yml            # postgres, redis (+ api/client opcionais, volume de uploads)
 ├── render.yaml, DEPLOY.md        # deploy da API no Render + guia completo
 ├── client/
