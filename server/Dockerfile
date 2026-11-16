@@ -1,6 +1,9 @@
 # Multi-stage Dockerfile para Nexus Shop Backend
 FROM node:20-alpine AS builder
 
+# O Prisma precisa do OpenSSL para escolher (e baixar no build) o engine certo
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -15,6 +18,8 @@ RUN npm run build
 
 # Runtime Stage
 FROM node:20-alpine AS runner
+
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 
@@ -40,4 +45,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
 # Aplica as migrações pendentes antes de subir a API
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# (binário local do Prisma: o npx poderia tentar baixar outra versão em tempo de execução)
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/server.js"]
