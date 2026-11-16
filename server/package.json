@@ -39,7 +39,7 @@
     "mercadopago": "^2.0.15",
     "nodemailer": "^6.9.14",
     "sanitize-html": "^2.13.0",
-    "stripe": "^16.7.0",
+    "stripe": "^23.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
