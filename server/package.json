@@ -31,7 +31,7 @@
     "@fastify/swagger-ui": "^3.0.0",
     "@prisma/client": "^5.18.0",
     "bcryptjs": "^2.4.3",
-    "dotenv": "^16.4.5",
+    "dotenv": "^18.0.10",
     "fastify": "^4.28.1",
     "fastify-type-provider-zod": "^2.0.0",
     "ioredis": "^5.4.1",
