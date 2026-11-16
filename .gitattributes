@@ -1,0 +1,7 @@
+# Repositório em LF; no Windows o Git converte na hora do checkout/commit.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
