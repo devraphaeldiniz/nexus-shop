@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
 import { redis } from '../../config/redis.js'
 import { NotFoundError, ConflictError } from '../../utils/errors.js'
@@ -6,6 +7,8 @@ import {
   CreateProductInput,
   UpdateProductInput,
 } from './products.schemas.js'
+
+const BRANDS_CACHE_KEY = 'products:brands'
 
 function slugify(text: string): string {
   return text
@@ -30,10 +33,13 @@ export class ProductService {
       sort,
       search,
       featured,
+      ram,
+      storage,
     } = query
 
     const skip = (page - 1) * limit
-    const where: any = { isActive: true }
+    const where: Prisma.ProductWhereInput = { isActive: true }
+    const and: Prisma.ProductWhereInput[] = []
 
     if (brand) {
       const brands = brand.split(',').map((b) => b.trim())
@@ -41,10 +47,16 @@ export class ProductService {
     }
 
     if (minPrice !== undefined || maxPrice !== undefined) {
-      where.price = {}
-      if (minPrice !== undefined) where.price.gte = minPrice
-      if (maxPrice !== undefined) where.price.lte = maxPrice
+      where.price = {
+        ...(minPrice !== undefined ? { gte: minPrice } : {}),
+        ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+      }
     }
+
+    // RAM e armazenamento ficam dentro do JSON "specifications"
+    if (ram !== undefined) and.push({ specifications: { path: ['ram'], equals: ram } })
+    if (storage !== undefined) and.push({ specifications: { path: ['storage'], equals: storage } })
+    if (and.length > 0) where.AND = and
 
     if (featured !== undefined) {
       where.isFeatured = featured
@@ -59,7 +71,7 @@ export class ProductService {
       ]
     }
 
-    let orderBy: any = { createdAt: 'desc' }
+    let orderBy: Prisma.ProductOrderByWithRelationInput = { createdAt: 'desc' }
     switch (sort) {
       case 'price_asc':
         orderBy = { price: 'asc' }
@@ -167,6 +179,7 @@ export class ProductService {
       include: { images: true },
     })
 
+    await redis.del(BRANDS_CACHE_KEY)
     return product
   }
 
@@ -176,19 +189,46 @@ export class ProductService {
 
     const { images, ...productData } = data
 
-    const updated = await prisma.product.update({
-      where: { id },
-      data: {
-        ...productData,
-        ...(data.name ? { slug: slugify(`${data.brand || existing.brand}-${data.name}`) } : {}),
-      },
-      include: { images: true },
+    if (productData.sku && productData.sku !== existing.sku) {
+      const skuInUse = await prisma.product.findUnique({ where: { sku: productData.sku } })
+      if (skuInUse) throw new ConflictError('SKU já cadastrado no estoque')
+    }
+
+    const nextSlug =
+      data.name || data.brand
+        ? slugify(`${data.brand || existing.brand}-${data.name || existing.name}`)
+        : existing.slug
+    if (nextSlug !== existing.slug) {
+      const slugInUse = await prisma.product.findUnique({ where: { slug: nextSlug } })
+      if (slugInUse) throw new ConflictError('Smartphone com este nome já existe')
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // Imagens: quando enviadas, substituem a galeria inteira na ordem recebida
+      if (images) {
+        await tx.productImage.deleteMany({ where: { productId: id } })
+        await tx.productImage.createMany({
+          data: images.map((url, index) => ({
+            productId: id,
+            url,
+            position: index,
+            alt: `${data.name || existing.name} - Foto ${index + 1}`,
+          })),
+        })
+      }
+
+      return tx.product.update({
+        where: { id },
+        data: { ...productData, slug: nextSlug },
+        include: { images: { orderBy: { position: 'asc' } } },
+      })
     })
 
     await redis.del(`product:${existing.slug}`)
     if (updated.slug !== existing.slug) {
       await redis.del(`product:${updated.slug}`)
     }
+    await redis.del(BRANDS_CACHE_KEY)
 
     return updated
   }
@@ -204,11 +244,12 @@ export class ProductService {
     })
 
     await redis.del(`product:${product.slug}`)
+    await redis.del(BRANDS_CACHE_KEY)
     return { success: true, message: 'Produto desativado com sucesso' }
   }
 
   async getBrands() {
-    const cacheKey = 'products:brands'
+    const cacheKey = BRANDS_CACHE_KEY
     const cached = await redis.get(cacheKey)
     if (cached) return JSON.parse(cached)
 

@@ -40,7 +40,11 @@ export const CreateProductSchema = z.object({
   images: z.array(z.string().url()).min(1),
 })
 
-export const UpdateProductSchema = CreateProductSchema.partial()
+export const UpdateProductSchema = CreateProductSchema.partial().extend({
+  // Reativar/pausar o produto na vitrine pelo painel
+  isActive: z.boolean().optional(),
+  compareAtPrice: z.number().positive().nullable().optional(),
+})
 
 export type ProductQueryInput = z.infer<typeof ProductQuerySchema>
 export type CreateProductInput = z.infer<typeof CreateProductSchema>

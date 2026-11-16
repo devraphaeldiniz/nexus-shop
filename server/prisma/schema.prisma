@@ -37,7 +37,6 @@ enum PaymentGateway {
 enum PaymentMethod {
   CREDIT_CARD
   PIX
-  BOLETO
 }
 
 model StoreSettings {
@@ -74,6 +73,7 @@ model User {
   avatar               String?
   role                 Role      @default(CUSTOMER)
   isActive             Boolean   @default(true)
+  isDemo               Boolean   @default(false) // conta de demonstração (senha pública): admin só lê, cliente não troca e-mail/senha
   emailVerified        Boolean   @default(false)
   googleId             String?   @unique
   refreshToken         String?
@@ -106,6 +106,7 @@ model Address {
   zipCode      String
   country      String   @default("BR")
   isDefault    Boolean  @default(false)
+  archivedAt   DateTime? // endereço removido pelo cliente, mantido para o histórico de pedidos
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -190,6 +191,7 @@ model Order {
   paymentMethod      PaymentMethod?
   subtotal           Decimal              @db.Decimal(10, 2)
   shippingCost       Decimal              @db.Decimal(10, 2) @default(0)
+  shippingMethod     String?              // id da opção de frete (express | standard)
   discount           Decimal              @db.Decimal(10, 2) @default(0)
   total              Decimal              @db.Decimal(10, 2)
   couponId           String?

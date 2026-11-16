@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
 import { authenticate, authorize } from '../../middlewares/auth.middleware.js'
 
@@ -87,5 +88,36 @@ export async function adminRoutes(app: FastifyInstance) {
         totalPages: Math.ceil(total / limit),
       },
     })
+  })
+
+  // Produtos para o painel: inclui pausados, com busca e paginação
+  app.get('/products', async (request, reply) => {
+    const query = request.query as { page?: string; limit?: string; search?: string }
+    const page = Math.max(Number(query.page) || 1, 1)
+    const limit = Math.min(Number(query.limit) || 50, 100)
+    const search = query.search?.trim()
+
+    const where: Prisma.ProductWhereInput = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { brand: { contains: search, mode: 'insensitive' } },
+            { sku: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {}
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        include: { images: { orderBy: { position: 'asc' } } },
+      }),
+      prisma.product.count({ where }),
+    ])
+
+    return reply.send({ products, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } })
   })
 }

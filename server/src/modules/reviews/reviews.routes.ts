@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { BadRequestError, NotFoundError } from '../../utils/errors.js'
 import sanitizeHtml from 'sanitize-html'
+import { redis } from '../../config/redis.js'
 
 const CreateReviewSchema = z.object({
   productId: z.string().min(1),
@@ -91,6 +92,9 @@ export async function reviewRoutes(app: FastifyInstance) {
         totalReviews: stats._count.rating,
       },
     })
+
+    // A página do produto é cacheada com as avaliações
+    await redis.del(`product:${product.slug}`)
 
     return reply.status(201).send({ review })
   })
