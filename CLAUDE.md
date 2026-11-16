@@ -30,7 +30,7 @@ npm run prisma:seed               # demo: admin/cliente (senhas impressas), 22 p
 npm run dev                       # :3001, /documentation, /health
 cd ../client && cp .env.example .env.local && npm install && npm run dev   # :3000
 ```
-- Server: `dev`, `build`, `start`, `lint`, `typecheck`, `test` (sem banco), `test:db` (cria/migra `nexus_shop_test` e roda tudo), `test:coverage`, `prisma:*` (`prisma.seed` configurado).
+- Server: `dev`, `build`, `start`, `lint`, `typecheck`, `test` (sem banco), `test:db` (cria/migra `nexus_shop_test` e roda tudo), `test:db:coverage` (idem, com cobertura via @vitest/coverage-v8), `test:coverage`, `prisma:*` (`prisma.seed` configurado).
 - Client: `dev`, `build`, `start`, `lint`, `typecheck`, `test:e2e` (Playwright sobe API e front ou reusa os que estão rodando; usa o cliente demo por padrão, então só precisa de um banco com seed).
 - Produção sem seed: primeiro admin em `/setup` (com `SETUP_TOKEN`). Docker da API roda `prisma migrate deploy` antes de subir.
 
@@ -149,7 +149,7 @@ Prisma + PostgreSQL, IDs `cuid()`, dinheiro `Decimal(10,2)`, tabelas snake_case.
 - `server/tests/unit`: errors, jwt, mercadopago-signature, money-coupon. `integration`: health, payments-webhook (sem banco), `store-flow.db.test.ts` (15 cenários com banco real: cookies/refresh, setup, preço/frete/estoque, concorrência de estoque e cupom, gateway desativado, webhooks MP aprovados/duplicados/divergentes/cancelados, pago após cancelamento, varredura, admin, criptografia das chaves). MP é mockado com `vi.mock`.
 - `demo-accounts.db.test.ts` (contas demo: somente leitura, máscara de dados, sessões simultâneas) e `http-errors.test.ts` (4xx não vira 500).
 - E2E (`client/e2e`): `checkout` (compra PIX, cupom, visitante → login → checkout, cadastro, senha errada), `catalog` (home e marcas, filtro e busca, página do produto, 404, carrinho, páginas institucionais), `demo` (botões da tela de login, admin somente leitura).
-- `npm run test:db` → 50 testes passando; E2E 13 passando; lint, tipos e `next build` ok (15/11/2026).
+- `npm run test:db` → 76 testes passando, cobertura 83,5% das linhas; E2E 13 passando; lint, tipos e `next build` ok (16/11/2026).
 - Lint: ESLint nos dois lados sem erros. CI bloqueia em lint/typecheck/testes/build; `npm audit` é informativo (`continue-on-error`).
 
 ## Convenções

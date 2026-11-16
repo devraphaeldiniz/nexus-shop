@@ -100,6 +100,7 @@ O seed cria `admin@nexusshop.com` e `cliente@nexusshop.com` (senhas exibidas no 
 cd server
 npm test            # unitários + integração sem banco
 npm run test:db     # suíte completa num banco separado (nexus_shop_test), incluindo pedidos, cupons, webhooks e expiração
+npm run test:db:coverage  # mesma suíte com relatório de cobertura (hoje ~83% das linhas)
 
 cd ../client
 # E2E: precisa de um banco migrado e com seed (ex.: nexus_shop_e2e); usa a conta demo do cliente
