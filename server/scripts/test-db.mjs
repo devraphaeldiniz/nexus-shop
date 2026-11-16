@@ -16,4 +16,5 @@ const run = (cmd) => execSync(cmd, { stdio: 'inherit', env })
 
 // prisma migrate deploy cria o banco se ele não existir e aplica as migrações
 run('npx prisma migrate deploy')
-run('npx vitest run')
+// Repassa opções extras para o vitest (ex.: npm run test:db -- --coverage)
+run(['npx vitest run', ...process.argv.slice(2)].join(' '))
