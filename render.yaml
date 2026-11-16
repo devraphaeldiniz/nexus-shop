@@ -33,17 +33,9 @@ services:
         generateValue: true
       - key: COOKIE_SAME_SITE
         value: lax
-      - key: MERCADOPAGO_WEBHOOK_SECRET
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: 587
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SMTP_FROM
-        sync: false
+      # Vitrine de portfólio: contas de demonstração na tela de login (desligue com false)
+      - key: DEMO_ACCOUNTS
+        value: "true"
+      # Opcionais, adicione depois no painel do Render quando for usar:
+      # SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM (e-mails da loja)
+      # MERCADOPAGO_WEBHOOK_SECRET, STRIPE_WEBHOOK_SECRET (webhooks de pagamento)

@@ -8,7 +8,7 @@ Arquitetura sugerida (todos com plano gratuito para portfólio):
 | API (Fastify) | **Render** (Docker) | `render.yaml` na raiz já descreve o serviço |
 | PostgreSQL | **Neon** | Copie a connection string (com `?sslmode=require`) |
 | Redis | **Upstash** | Use a URL `rediss://...` |
-| E-mail | Resend, Brevo ou Mailtrap | Qualquer SMTP |
+| E-mail (opcional) | Resend, Brevo ou Mailtrap | Qualquer SMTP; sem ele a loja só não envia e-mails |
 
 O front faz **proxy** da API (`/api/v1/*` → API) para que os cookies de sessão sejam do mesmo domínio do front.
 Por isso não é preciso `COOKIE_SAME_SITE=none`.
@@ -23,7 +23,7 @@ Por isso não é preciso `COOKIE_SAME_SITE=none`.
    - `DATABASE_URL`, `REDIS_URL`
    - `FRONTEND_URL` = URL do front na Vercel (ex.: `https://nexus-shop.vercel.app`)
    - `API_PUBLIC_URL` = URL do próprio serviço no Render (ex.: `https://nexus-shop-api.onrender.com`)
-   - `SMTP_*`, `MERCADOPAGO_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET`
+   - Depois, se quiser: `SMTP_*` (e-mails) e `MERCADOPAGO_WEBHOOK_SECRET`/`STRIPE_WEBHOOK_SECRET` (webhooks). O blueprint já liga `DEMO_ACCOUNTS=true`.
 3. O container roda `prisma migrate deploy` antes de subir, então o banco é criado no primeiro deploy.
 4. Teste `https://<api>/health` → `"status": "healthy"`.
 
