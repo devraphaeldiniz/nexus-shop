@@ -1,118 +1,122 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Smartphone, Lock, Mail, ArrowRight } from 'lucide-react'
 import { useAuthStore } from '../../store/useAuthStore'
+import { apiFetch } from '../../lib/api'
+import { getSafeNext } from '../../lib/navigation'
+import { AuthShell } from '../../components/auth/AuthShell'
+import { User } from '../../types'
+
+type DemoAccount = { role: 'CUSTOMER' | 'ADMIN'; label: string; email: string; password: string }
 
 export default function LoginPage() {
   const router = useRouter()
-  const { setAuth } = useAuthStore()
+  const { setUser } = useAuthStore()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [needsSetup, setNeedsSetup] = useState(false)
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  useEffect(() => {
+    apiFetch<{ needsSetup: boolean }>('/auth/setup-status')
+      .then((data) => setNeedsSetup(data.needsSetup))
+      .catch(() => undefined)
+    apiFetch<{ accounts: DemoAccount[] }>('/auth/demo-accounts')
+      .then((data) => setDemoAccounts(data.accounts || []))
+      .catch(() => undefined)
+  }, [])
+
+  const signIn = async (credentials: { email: string; password: string }) => {
     setError('')
     setLoading(true)
-
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
-      const res = await fetch(`${apiUrl}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Envia e armazena cookies httpOnly
-        body: JSON.stringify({ email, password }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.message || 'Credenciais inválidas. Verifique seu e-mail e senha.')
-        setLoading(false)
-        return
-      }
-
-      setAuth(data.user, data.accessToken || '', '')
-      router.push(data.user.role === 'ADMIN' ? '/admin' : '/')
-    } catch {
-      setError('Falha na conexão com o servidor. Tente novamente mais tarde.')
+      const data = await apiFetch<{ user: User }>('/auth/login', { method: 'POST', body: credentials })
+      setUser(data.user)
+      router.push(getSafeNext(data.user.role === 'ADMIN' ? '/admin' : '/'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível conectar. Tente de novo.')
       setLoading(false)
     }
   }
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    signIn({ email, password })
+  }
+
   return (
-    <div className="max-w-md mx-auto px-4 py-16">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl space-y-6">
-        <div className="text-center space-y-2">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center mx-auto text-white">
-            <Smartphone className="w-5 h-5" />
-          </div>
-          <h1 className="text-xl font-bold text-white tracking-tight">Acessar Conta</h1>
-          <p className="text-xs text-slate-400">Entre com seu e-mail e senha para continuar</p>
-        </div>
-
-        {error && (
-          <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-300 text-xs">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="text-slate-300 font-medium mb-1 block">E-mail</label>
-            <div className="relative">
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu.email@exemplo.com"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-slate-500"
-              />
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-slate-300 font-medium">Senha</label>
-              <Link href="/forgot-password" className="text-indigo-400 hover:underline text-[11px]">Esqueceu a senha?</Link>
-            </div>
-            <div className="relative">
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-slate-500"
-              />
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg flex items-center justify-center gap-2 transition-colors shadow-sm"
-          >
-            <span>{loading ? 'Entrando...' : 'Entrar na Loja'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </form>
-
-        <p className="text-center text-xs text-slate-400 pt-2 border-t border-slate-800">
-          Ainda não possui conta?{' '}
-          <Link href="/register" className="text-indigo-400 font-semibold hover:underline">
+    <AuthShell
+      title="Entrar"
+      subtitle="Acompanhe pedidos e finalize compras mais rápido."
+      footer={
+        <>
+          Primeira vez aqui?{' '}
+          <Link href="/register" className="font-semibold text-ink underline underline-offset-4">
             Criar conta
           </Link>
+        </>
+      }
+    >
+      {needsSetup && (
+        <p className="notice-warn mb-5">
+          Esta loja ainda não tem administrador. <Link href="/setup" className="font-semibold underline">Configurar a loja</Link>
         </p>
-      </div>
-    </div>
+      )}
+      {error && <p className="notice-error mb-5">{error}</p>}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label htmlFor="email" className="field-label">E-mail</label>
+          <input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu.email@exemplo.com" className="field" />
+        </div>
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label htmlFor="password" className="text-sm font-medium">Senha</label>
+            <Link href="/forgot-password" className="text-sm text-graphite underline-offset-4 hover:text-ink hover:underline">
+              Esqueci a senha
+            </Link>
+          </div>
+          <input id="password" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="field" />
+        </div>
+        <button type="submit" disabled={loading} className="btn-primary w-full py-3">
+          {loading ? 'Entrando...' : 'Entrar'}
+        </button>
+      </form>
+
+      {demoAccounts.length > 0 && (
+        <section aria-labelledby="demo-title" className="mt-8 rounded-2xl border border-line bg-paper/70 p-5">
+          <h2 id="demo-title" className="font-display text-lg font-bold">Quer só conhecer a loja?</h2>
+          <p className="mt-1 text-sm text-graphite">
+            Use uma conta de demonstração. O painel do administrador é somente leitura.
+          </p>
+          <ul className="mt-4 space-y-3">
+            {demoAccounts.map((account) => (
+              <li key={account.email} className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 text-sm">
+                  <p className="font-semibold">{account.label}</p>
+                  <p className="truncate text-graphite">{account.email}</p>
+                  <p className="text-graphite">
+                    Senha: <span className="font-medium text-ink">{account.password}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => signIn({ email: account.email, password: account.password })}
+                  className="btn-ghost shrink-0"
+                >
+                  Entrar como {account.role === 'ADMIN' ? 'admin' : 'cliente'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </AuthShell>
   )
 }

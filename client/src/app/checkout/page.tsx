@@ -1,27 +1,37 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import {
-  CreditCard,
-  QrCode,
-  Truck,
-  Tag,
-  CheckCircle,
-  Lock,
-  ArrowRight,
-  Copy,
-  Check,
-  AlertCircle,
-} from 'lucide-react'
+import { Check, CreditCard, QrCode } from 'lucide-react'
 import { useCartStore } from '../../store/useCartStore'
 import { useAuthStore } from '../../store/useAuthStore'
 import { formatCurrency } from '../../lib/utils'
+import { ProductImage } from '../../components/products/ProductImage'
+import { apiFetch } from '../../lib/api'
+import { OrderPayment, PayableOrder } from '../../components/checkout/OrderPayment'
+import { Address } from '../../types'
+
+interface ShippingOption {
+  id: 'express' | 'standard'
+  name: string
+  deadline: string
+  price: number
+  isFree: boolean
+}
+
+type Gateway = 'MERCADOPAGO' | 'STRIPE'
+const METHOD_BY_GATEWAY: Record<Gateway, 'PIX' | 'CREDIT_CARD'> = {
+  MERCADOPAGO: 'PIX',
+  STRIPE: 'CREDIT_CARD',
+}
+
+const inputClass = 'field'
 
 export default function CheckoutPage() {
   const router = useRouter()
   const { items, subtotal, clearCart } = useCartStore()
-  const { user, accessToken, isAuthenticated } = useAuthStore()
+  const { isAuthenticated } = useAuthStore()
 
   const [mounted, setMounted] = useState(false)
   const [address, setAddress] = useState({
@@ -34,16 +44,19 @@ export default function CheckoutPage() {
     zipCode: '',
   })
 
-  const [shippingOptions, setShippingOptions] = useState<any[]>([])
-  const [selectedShipping, setSelectedShipping] = useState<any>(null)
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>([])
+  const [selectedAddressId, setSelectedAddressId] = useState<string>('') // '' = novo endereço
+
+  const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
+  const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null)
   const [loadingShipping, setLoadingShipping] = useState(false)
+  const [shippingError, setShippingError] = useState('')
 
   const [gateways, setGateways] = useState<{ stripe: boolean; mercadoPago: boolean }>({
     stripe: true,
     mercadoPago: true,
   })
-  const [selectedGateway, setSelectedGateway] = useState<'MERCADOPAGO' | 'STRIPE'>('MERCADOPAGO')
-  const [selectedMethod, setSelectedMethod] = useState<'PIX' | 'CREDIT_CARD'>('PIX')
+  const [selectedGateway, setSelectedGateway] = useState<Gateway>('MERCADOPAGO')
 
   const [couponCode, setCouponCode] = useState('')
   const [discount, setDiscount] = useState(0)
@@ -51,517 +64,461 @@ export default function CheckoutPage() {
   const [couponError, setCouponError] = useState('')
 
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [pixData, setPixData] = useState<{ qrCode?: string; qrCodeBase64?: string } | null>(null)
-  const [createdOrder, setCreatedOrder] = useState<any>(null)
-  const [copiedPix, setCopiedPix] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [createdOrder, setCreatedOrder] = useState<PayableOrder | null>(null)
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
+  const rawSubtotal = subtotal()
 
   useEffect(() => {
     setMounted(true)
     loadStoreSettings()
   }, [])
 
-  const loadStoreSettings = async () => {
-    try {
-      const res = await fetch(`${apiUrl}/settings/public`)
-      if (res.ok) {
-        const data = await res.json()
-        setGateways({
-          stripe: data.paymentGateways?.stripe?.enabled ?? true,
-          mercadoPago: data.paymentGateways?.mercadoPago?.enabled ?? true,
-        })
-      }
-    } catch {}
+  // Endereços salvos do cliente: o padrão já vem selecionado
+  useEffect(() => {
+    if (!isAuthenticated) return
+    apiFetch<{ addresses: Address[] }>('/account/addresses')
+      .then(({ addresses }) => {
+        setSavedAddresses(addresses)
+        const preferred = addresses.find((a) => a.isDefault) || addresses[0]
+        if (preferred) selectSavedAddress(preferred)
+      })
+      .catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
+
+  const selectSavedAddress = (saved: Address | null) => {
+    if (!saved) {
+      setSelectedAddressId('')
+      setAddress({ street: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '' })
+      setShippingOptions([])
+      setSelectedShipping(null)
+      return
+    }
+    setSelectedAddressId(saved.id)
+    setAddress({
+      street: saved.street,
+      number: saved.number,
+      complement: saved.complement || '',
+      neighborhood: saved.neighborhood,
+      city: saved.city,
+      state: saved.state,
+      zipCode: saved.zipCode,
+    })
+    calculateShipping(false, saved.zipCode)
   }
 
-  // Busca de CEP oficial
-  const handleZipCodeBlur = async () => {
-    const cleanZip = address.zipCode.replace(/\D/g, '')
+  // O frete depende do subtotal: se o carrinho mudar, recalcula
+  useEffect(() => {
+    if (mounted && address.zipCode.replace(/\D/g, '').length === 8) {
+      calculateShipping(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSubtotal])
+
+  const loadStoreSettings = async () => {
+    try {
+      const data = await apiFetch<{
+        paymentGateways?: { stripe?: { enabled: boolean }; mercadoPago?: { enabled: boolean } }
+      }>('/settings/public')
+      const next = {
+        stripe: !!data.paymentGateways?.stripe?.enabled,
+        mercadoPago: !!data.paymentGateways?.mercadoPago?.enabled,
+      }
+      setGateways(next)
+      if (!next.mercadoPago && next.stripe) setSelectedGateway('STRIPE')
+    } catch {
+      // Sem resposta da API: o servidor valida o gateway ao criar o pedido
+    }
+  }
+
+  // Consulta CEP (ViaCEP) e opções de frete no backend
+  const calculateShipping = async (fillAddress = true, zipCode = address.zipCode) => {
+    const cleanZip = zipCode.replace(/\D/g, '')
     if (cleanZip.length !== 8) return
 
+    setShippingError('')
     setLoadingShipping(true)
     try {
-      const res = await fetch(`${apiUrl}/shipping/calculate`, {
+      const data = await apiFetch<{
+        address?: { city: string; state: string; neighborhood: string; street: string }
+        options: ShippingOption[]
+      }>('/shipping/calculate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zipCode: cleanZip, subtotal: subtotal() }),
+        body: { zipCode: cleanZip, subtotal: rawSubtotal },
       })
 
-      if (res.ok) {
-        const data = await res.json()
-        if (data.address) {
-          setAddress((prev) => ({
-            ...prev,
-            city: data.address.city || prev.city,
-            state: data.address.state || prev.state,
-            neighborhood: data.address.neighborhood || prev.neighborhood,
-            street: data.address.street || prev.street,
-          }))
-        }
-        setShippingOptions(data.options || [])
-        if (data.options?.length > 0) {
-          setSelectedShipping(data.options[0])
-        }
+      if (fillAddress && data.address) {
+        setAddress((prev) => ({
+          ...prev,
+          city: data.address!.city || prev.city,
+          state: data.address!.state || prev.state,
+          neighborhood: data.address!.neighborhood || prev.neighborhood,
+          street: data.address!.street || prev.street,
+        }))
       }
-    } catch {
+      setShippingOptions(data.options || [])
+      setSelectedShipping((current) =>
+        data.options.find((o) => o.id === current?.id) || data.options[0] || null
+      )
+    } catch (err) {
+      setShippingError(err instanceof Error ? err.message : 'Não foi possível calcular o frete.')
     } finally {
       setLoadingShipping(false)
     }
   }
 
-  // Aplicar Cupom Real via Backend
+  // Valida o cupom no backend (mesma regra aplicada na criação do pedido)
   const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault()
     setCouponError('')
     if (!couponCode.trim()) return
-
-    try {
-      const res = await fetch(`${apiUrl}/coupons/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ code: couponCode.trim(), orderAmount: subtotal() }),
-      })
-
-      const data = await res.json()
-      if (res.ok && data.valid) {
-        setDiscount(data.coupon.discountAmount)
-        setCouponApplied(true)
-      } else {
-        setCouponError(data.message || 'Cupom inválido ou expirado.')
-        setDiscount(0)
-        setCouponApplied(false)
-      }
-    } catch {
-      setCouponError('Não foi possível validar o cupom.')
-    }
-  }
-
-  // Enviar Pedido Real
-  const handlePlaceOrder = async () => {
     if (!isAuthenticated) {
-      alert('Você precisa estar logado para concluir a compra.')
-      router.push('/login')
+      setCouponError('Entre na sua conta para usar cupons.')
       return
     }
 
-    if (!address.street || !address.number || !address.city || !address.state) {
-      alert('Por favor, preencha o endereço completo de entrega.')
+    try {
+      const data = await apiFetch<{ coupon: { discountAmount: number } }>('/coupons/validate', {
+        method: 'POST',
+        body: { code: couponCode.trim(), orderAmount: rawSubtotal },
+      })
+      setDiscount(data.coupon.discountAmount)
+      setCouponApplied(true)
+    } catch (err) {
+      setCouponError(err instanceof Error ? err.message : 'Cupom inválido ou expirado.')
+      setDiscount(0)
+      setCouponApplied(false)
+    }
+  }
+
+  const removeCoupon = () => {
+    setCouponCode('')
+    setDiscount(0)
+    setCouponApplied(false)
+    setCouponError('')
+  }
+
+  const handlePlaceOrder = async () => {
+    setFormError('')
+
+    if (!isAuthenticated) {
+      router.push('/login?next=/checkout')
+      return
+    }
+
+    const missing = !address.zipCode || !address.street || !address.number || !address.neighborhood || !address.city || address.state.length !== 2
+    if (missing) {
+      setFormError('Preencha o endereço completo de entrega (CEP, rua, número, bairro, cidade e UF).')
+      return
+    }
+    if (!selectedShipping) {
+      setFormError('Informe o CEP para calcular o frete antes de continuar.')
       return
     }
 
     setIsSubmitting(true)
     try {
-      // 1. Cadastrar endereço ou usar o selecionado
-      const orderPayload = {
-        address: {
-          street: address.street,
-          number: address.number,
-          complement: address.complement || undefined,
-          neighborhood: address.neighborhood,
-          city: address.city,
-          state: address.state,
-          zipCode: address.zipCode,
-        },
-        paymentGateway: selectedGateway,
-        paymentMethod: selectedMethod,
-        couponCode: couponApplied ? couponCode.trim() : undefined,
-      }
-
-      // 2. Chamar endpoint de criação de pedido
-      const res = await fetch(`${apiUrl}/orders`, {
+      const { order } = await apiFetch<{ order: PayableOrder }>('/orders', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
+        body: {
+          items: items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            color: item.color || undefined,
+            storage: item.storage || undefined,
+          })),
+          shippingOptionId: selectedShipping.id,
+          ...(selectedAddressId ? { addressId: selectedAddressId } : {}),
+          address: selectedAddressId ? undefined : {
+            street: address.street.trim(),
+            number: address.number.trim(),
+            complement: address.complement.trim() || undefined,
+            neighborhood: address.neighborhood.trim(),
+            city: address.city.trim(),
+            state: address.state.trim().toUpperCase(),
+            zipCode: address.zipCode.replace(/\D/g, ''),
+          },
+          paymentGateway: selectedGateway,
+          paymentMethod: METHOD_BY_GATEWAY[selectedGateway],
+          couponCode: couponApplied ? couponCode.trim() : undefined,
         },
-        body: JSON.stringify(orderPayload),
       })
 
-      const data = await res.json()
-
-      if (!res.ok) {
-        alert(data.message || 'Falha ao registrar pedido.')
-        setIsSubmitting(false)
-        return
-      }
-
-      const order = data.order
+      // Estoque já reservado no servidor: o carrinho local pode ser esvaziado
       setCreatedOrder(order)
       clearCart()
-
-      // 3. Se for PIX no Mercado Pago, gera o QR Code e código copia-e-cola
-      if (selectedGateway === 'MERCADOPAGO' && selectedMethod === 'PIX') {
-        const pixRes = await fetch(`${apiUrl}/payments/mercadopago/create-pix`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ orderId: order.id }),
-        })
-
-        if (pixRes.ok) {
-          const pixResult = await pixRes.json()
-          setPixData(pixResult)
-        }
-      }
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
-      alert('Erro ao processar pedido. Tente novamente.')
+      setFormError(err instanceof Error ? err.message : 'Erro ao registrar o pedido. Tente novamente.')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const copyPixCode = () => {
-    if (pixData?.qrCode) {
-      navigator.clipboard.writeText(pixData.qrCode)
-      setCopiedPix(true)
-      setTimeout(() => setCopiedPix(false), 2500)
-    }
-  }
-
   if (!mounted) return null
 
-  // Tela de Pedido Concluído / Pagamento Pendente PIX
+  // Pedido criado: cobrança (PIX ou cartão) e acompanhamento do pagamento
   if (createdOrder) {
     return (
-      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-6">
-        <div className="w-16 h-16 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-400 flex items-center justify-center mx-auto">
-          <CheckCircle className="w-8 h-8" />
+      <div className="container max-w-xl py-12 md:py-20">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ok text-white">
+          <Check className="h-6 w-6" />
         </div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Pedido Registrado com Sucesso!</h1>
-        <p className="text-xs text-slate-400">
-          Identificador do pedido: <span className="font-mono font-bold text-indigo-400">#{createdOrder.id.slice(-8)}</span>
+        <h1 className="mt-5 text-4xl font-extrabold tracking-tight">Pedido registrado!</h1>
+        <p className="mt-2 text-graphite">
+          Número do pedido <span className="font-display font-bold text-ink" data-testid="order-code">#{createdOrder.id.slice(-8)}</span>.
+          Assim que o pagamento for confirmado, você recebe um e-mail.
         </p>
 
-        {pixData?.qrCode && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-left space-y-4">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-              <QrCode className="w-4 h-4" />
-              <span>Pague via PIX para Liberação Imediata</span>
-            </div>
+        <div className="mt-8">
+          <OrderPayment order={createdOrder} />
+        </div>
 
-            {pixData.qrCodeBase64 && (
-              <div className="flex justify-center p-4 bg-white rounded-xl max-w-[200px] mx-auto">
-                <img
-                  src={`data:image/png;base64,${pixData.qrCodeBase64}`}
-                  alt="QR Code PIX"
-                  className="w-full h-auto"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="text-[11px] text-slate-400 block mb-1">Código Copia e Cola PIX:</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={pixData.qrCode}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-[10px] text-slate-300 font-mono truncate"
-                />
-                <button
-                  onClick={copyPixCode}
-                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 flex-shrink-0"
-                >
-                  {copiedPix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedPix ? 'Copiado!' : 'Copiar'}</span>
-                </button>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-400 text-center">
-              Abra o app do seu banco, escolha <strong>PIX Copia e Cola</strong> e conclua o pagamento.
-              A confirmação é automática.
-            </p>
-          </div>
-        )}
-
-        <button
-          onClick={() => router.push('/products')}
-          className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg"
-        >
-          Voltar para a Loja
-        </button>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href={`/orders/${createdOrder.id}`} className="btn-primary">Acompanhar pedido</Link>
+          <Link href="/products" className="btn-ghost">Continuar comprando</Link>
+        </div>
       </div>
     )
   }
 
-  const rawSubtotal = subtotal()
-  const shippingCost = selectedShipping?.price ?? (rawSubtotal > 3000 ? 0 : 39.9)
+  const shippingCost = selectedShipping?.price ?? 0
   const total = Math.max(0, rawSubtotal - discount + shippingCost)
+  const noGateway = !gateways.mercadoPago && !gateways.stripe
 
   if (items.length === 0) {
     return (
-      <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
-        <h2 className="text-base font-bold text-white">Seu carrinho está vazio</h2>
-        <p className="text-xs text-slate-400">Adicione ao menos um smartphone ao carrinho para finalizar a compra.</p>
-        <button
-          onClick={() => router.push('/products')}
-          className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg"
-        >
-          Explorar Catálogo
-        </button>
+      <div className="container py-20">
+        <div className="stage mx-auto max-w-lg px-8 py-14 text-center">
+          <h1 className="text-2xl font-bold">Seu carrinho está vazio</h1>
+          <p className="mt-2 text-graphite">Escolha um smartphone para continuar.</p>
+          <button onClick={() => router.push('/products')} className="btn-primary mt-6">Ver smartphones</button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-      <div className="border-b border-slate-800 pb-4">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Finalização da Compra</h1>
-        <p className="text-xs text-slate-400 mt-1">Ambiente protegido com criptografia bancária</p>
-      </div>
+    <div className="container pt-8 md:pt-12">
+      <h1 className="text-4xl font-extrabold tracking-tight md:text-5xl">Finalizar compra</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Formulário de Endereço & Pagamento */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* 1. Endereço com Busca de CEP Oficial */}
-          <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Truck className="w-4 h-4 text-indigo-400" />
-              <h2 className="text-sm font-bold text-white">1. Endereço e Cálculo de Frete</h2>
-            </div>
+      {!isAuthenticated && (
+        <p className="notice-warn mt-6">
+          Entre na sua conta para concluir a compra.{' '}
+          <Link href="/login?next=/checkout" className="font-semibold underline">Entrar</Link> ou{' '}
+          <Link href="/register?next=/checkout" className="font-semibold underline">criar conta</Link>
+        </p>
+      )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="text-slate-400 mb-1 block">CEP *</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="00000-000"
-                    value={address.zipCode}
-                    onChange={(e) => setAddress({ ...address, zipCode: e.target.value })}
-                    onBlur={handleZipCodeBlur}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
-                  />
-                  {loadingShipping && (
-                    <span className="absolute right-3 top-3 text-[10px] text-indigo-400 animate-pulse">
-                      Consultando...
-                    </span>
-                  )}
+      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_400px] lg:gap-12">
+        <div className="space-y-8">
+          {/* Entrega */}
+          <section className="panel p-6 md:p-8">
+            <h2 className="text-xl font-bold">Entrega</h2>
+
+            {savedAddresses.length > 0 && (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {savedAddresses.map((saved) => (
+                  <button
+                    type="button"
+                    key={saved.id}
+                    onClick={() => selectSavedAddress(saved)}
+                    aria-pressed={selectedAddressId === saved.id}
+                    className={`rounded-xl border p-4 text-left text-sm ${
+                      selectedAddressId === saved.id ? 'border-ink ring-1 ring-ink' : 'border-line hover:border-graphite'
+                    }`}
+                  >
+                    <span className="font-semibold">{saved.label}</span>
+                    <p className="mt-1 text-graphite">{saved.street}, {saved.number}</p>
+                    <p className="text-graphite">{saved.city}/{saved.state}</p>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => selectSavedAddress(null)}
+                  aria-pressed={selectedAddressId === ''}
+                  className={`rounded-xl border p-4 text-left text-sm ${
+                    selectedAddressId === '' ? 'border-ink ring-1 ring-ink' : 'border-line hover:border-graphite'
+                  }`}
+                >
+                  <span className="font-semibold">Outro endereço</span>
+                  <p className="mt-1 text-graphite">Preencher um endereço novo</p>
+                </button>
+              </div>
+            )}
+
+            {!selectedAddressId && (
+              <div className="mt-5 grid gap-4 sm:grid-cols-6">
+                <div className="sm:col-span-2">
+                  <label htmlFor="zip" className="field-label">CEP</label>
+                  <input id="zip" type="text" inputMode="numeric" placeholder="00000-000" maxLength={9} value={address.zipCode} onChange={(e) => setAddress({ ...address, zipCode: e.target.value })} onBlur={() => calculateShipping(true)} className={inputClass} />
+                  {loadingShipping && <p className="mt-1.5 text-xs text-graphite">Buscando endereço...</p>}
+                  {shippingError && <p className="mt-1.5 text-xs text-danger">{shippingError}</p>}
                 </div>
-              </div>
-
-              <div>
-                <label className="text-slate-400 mb-1 block">Cidade / UF</label>
-                <input
-                  type="text"
-                  placeholder="Preenchimento automático"
-                  value={address.city ? `${address.city} - ${address.state}` : ''}
-                  readOnly
-                  className="w-full bg-slate-800/60 border border-slate-700/60 rounded-lg p-2.5 text-slate-300"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="text-slate-400 mb-1 block">Logradouro / Rua *</label>
-                <input
-                  type="text"
-                  placeholder="Rua, Avenida, Praça..."
-                  value={address.street}
-                  onChange={(e) => setAddress({ ...address, street: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-400 mb-1 block">Número *</label>
-                <input
-                  type="text"
-                  placeholder="123"
-                  value={address.number}
-                  onChange={(e) => setAddress({ ...address, number: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-400 mb-1 block">Complemento</label>
-                <input
-                  type="text"
-                  placeholder="Apto, Bloco (opcional)"
-                  value={address.complement}
-                  onChange={(e) => setAddress({ ...address, complement: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white"
-                />
-              </div>
-            </div>
-
-            {/* Opções de Envio Retornadas pelo Backend */}
-            {shippingOptions.length > 0 && (
-              <div className="pt-3 border-t border-slate-800 space-y-2">
-                <p className="text-xs font-semibold text-slate-300">Selecione o Tipo de Frete:</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {shippingOptions.map((opt) => (
-                    <div
-                      key={opt.id}
-                      onClick={() => setSelectedShipping(opt)}
-                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                        selectedShipping?.id === opt.id
-                          ? 'border-indigo-500 bg-indigo-950/20'
-                          : 'border-slate-800 bg-slate-950/40'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-semibold text-white">{opt.name}</span>
-                        <span className="font-bold text-emerald-400">
-                          {opt.price === 0 ? 'Grátis' : formatCurrency(opt.price)}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Prazo: {opt.deadline}</p>
-                    </div>
-                  ))}
+                <div className="sm:col-span-3">
+                  <label htmlFor="city" className="field-label">Cidade</label>
+                  <input id="city" type="text" value={address.city} onChange={(e) => setAddress({ ...address, city: e.target.value })} className={inputClass} />
+                </div>
+                <div>
+                  <label htmlFor="uf" className="field-label">UF</label>
+                  <input id="uf" type="text" maxLength={2} value={address.state} onChange={(e) => setAddress({ ...address, state: e.target.value.toUpperCase() })} className={`${inputClass} uppercase`} />
+                </div>
+                <div className="sm:col-span-4">
+                  <label htmlFor="street" className="field-label">Rua</label>
+                  <input id="street" type="text" value={address.street} onChange={(e) => setAddress({ ...address, street: e.target.value })} className={inputClass} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label htmlFor="number" className="field-label">Número</label>
+                  <input id="number" type="text" value={address.number} onChange={(e) => setAddress({ ...address, number: e.target.value })} className={inputClass} />
+                </div>
+                <div className="sm:col-span-3">
+                  <label htmlFor="neighborhood" className="field-label">Bairro</label>
+                  <input id="neighborhood" type="text" value={address.neighborhood} onChange={(e) => setAddress({ ...address, neighborhood: e.target.value })} className={inputClass} />
+                </div>
+                <div className="sm:col-span-3">
+                  <label htmlFor="complement" className="field-label">Complemento <span className="font-normal text-graphite">(opcional)</span></label>
+                  <input id="complement" type="text" placeholder="Apto, bloco" value={address.complement} onChange={(e) => setAddress({ ...address, complement: e.target.value })} className={inputClass} />
                 </div>
               </div>
             )}
+            {loadingShipping && selectedAddressId && <p className="mt-4 text-sm text-graphite">Calculando frete...</p>}
+
+            {shippingOptions.length > 0 && (
+              <fieldset className="mt-6">
+                <legend className="mb-3 text-sm font-semibold">Escolha o frete</legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {shippingOptions.map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.id}
+                      onClick={() => setSelectedShipping(opt)}
+                      aria-pressed={selectedShipping?.id === opt.id}
+                      className={`rounded-xl border p-4 text-left ${
+                        selectedShipping?.id === opt.id ? 'border-ink ring-1 ring-ink' : 'border-line hover:border-graphite'
+                      }`}
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-semibold">{opt.name}</span>
+                        <span className={`price text-base ${opt.price === 0 ? 'text-ok' : ''}`}>
+                          {opt.price === 0 ? 'Grátis' : formatCurrency(opt.price)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-graphite">{opt.deadline}</p>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            )}
           </section>
 
-          {/* 2. Seleção de Gateway e Pagamento Real */}
-          <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-indigo-400" />
-              <h2 className="text-sm font-bold text-white">2. Forma de Pagamento</h2>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Pagamento */}
+          <section className="panel p-6 md:p-8">
+            <h2 className="text-xl font-bold">Pagamento</h2>
+            {noGateway && <p className="notice-warn mt-4">Nenhuma forma de pagamento está ativa agora. Tente mais tarde.</p>}
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {gateways.mercadoPago && (
-                <div
-                  onClick={() => {
-                    setSelectedGateway('MERCADOPAGO')
-                    setSelectedMethod('PIX')
-                  }}
-                  className={`p-4 rounded-xl border cursor-pointer transition-colors ${
-                    selectedGateway === 'MERCADOPAGO'
-                      ? 'border-indigo-500 bg-indigo-950/20'
-                      : 'border-slate-800'
+                <button
+                  type="button"
+                  onClick={() => setSelectedGateway('MERCADOPAGO')}
+                  aria-pressed={selectedGateway === 'MERCADOPAGO'}
+                  className={`flex gap-3 rounded-xl border p-4 text-left ${
+                    selectedGateway === 'MERCADOPAGO' ? 'border-ink ring-1 ring-ink' : 'border-line hover:border-graphite'
                   }`}
                 >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold text-white">PIX (Mercado Pago)</span>
-                    <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950 border border-emerald-800 px-1.5 py-0.5 rounded">
-                      Liberação Imediata
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Gera QR Code oficial para pagamento direto no app do seu banco.
-                  </p>
-                </div>
+                  <QrCode className="h-5 w-5 flex-shrink-0" />
+                  <span>
+                    <span className="block text-sm font-semibold">PIX (Mercado Pago)</span>
+                    <span className="mt-1 block text-sm text-graphite">QR Code válido por 30 minutos. Confirmação automática.</span>
+                  </span>
+                </button>
               )}
-
               {gateways.stripe && (
-                <div
-                  onClick={() => {
-                    setSelectedGateway('STRIPE')
-                    setSelectedMethod('CREDIT_CARD')
-                  }}
-                  className={`p-4 rounded-xl border cursor-pointer transition-colors ${
-                    selectedGateway === 'STRIPE'
-                      ? 'border-indigo-500 bg-indigo-950/20'
-                      : 'border-slate-800'
+                <button
+                  type="button"
+                  onClick={() => setSelectedGateway('STRIPE')}
+                  aria-pressed={selectedGateway === 'STRIPE'}
+                  className={`flex gap-3 rounded-xl border p-4 text-left ${
+                    selectedGateway === 'STRIPE' ? 'border-ink ring-1 ring-ink' : 'border-line hover:border-graphite'
                   }`}
                 >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-bold text-white">Cartão de Crédito</span>
-                    <span className="text-[10px] font-semibold text-indigo-400 bg-indigo-950 border border-indigo-800 px-1.5 py-0.5 rounded">
-                      Até 12x
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Processamento seguro via Stripe com proteção antifraude.
-                  </p>
-                </div>
+                  <CreditCard className="h-5 w-5 flex-shrink-0" />
+                  <span>
+                    <span className="block text-sm font-semibold">Cartão de crédito</span>
+                    <span className="mt-1 block text-sm text-graphite">Você digita os dados do cartão no próximo passo, em ambiente do Stripe.</span>
+                  </span>
+                </button>
               )}
             </div>
           </section>
         </div>
 
-        {/* Resumo do Pedido & Ação */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-            <h2 className="text-sm font-bold text-white">Itens do Pedido ({items.length})</h2>
-
-            <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
+        {/* Resumo */}
+        <aside className="lg:sticky lg:top-28 lg:self-start">
+          <div className="panel p-6">
+            <h2 className="text-xl font-bold">Resumo</h2>
+            <ul className="mt-5 space-y-4">
               {items.map((item) => (
-                <div key={item.id} className="flex gap-3 text-xs">
-                  <img
-                    src={item.image || 'https://via.placeholder.com/60'}
-                    alt={item.name}
-                    className="w-10 h-10 object-cover rounded bg-slate-800 flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-white truncate">{item.name}</p>
-                    <p className="text-slate-400 text-[10px]">Qtd: {item.quantity}</p>
+                <li key={item.id} className="flex gap-3">
+                  <div className="stage h-16 w-14 flex-shrink-0 overflow-hidden rounded-xl">
+                    <ProductImage src={item.image} alt="" className="h-full w-full object-cover" />
                   </div>
-                  <span className="font-semibold text-white">
-                    {formatCurrency(item.price * item.quantity)}
-                  </span>
-                </div>
+                  <div className="min-w-0 flex-1 text-sm">
+                    <p className="font-semibold leading-snug">{item.name}</p>
+                    <p className="text-graphite">
+                      {item.quantity} {item.quantity === 1 ? 'unidade' : 'unidades'}
+                      {item.color ? `, ${item.color}` : ''}
+                    </p>
+                  </div>
+                  <span className="price text-sm">{formatCurrency(item.price * item.quantity)}</span>
+                </li>
               ))}
-            </div>
+            </ul>
 
-            {/* Cupom */}
-            <form onSubmit={handleApplyCoupon} className="pt-3 border-t border-slate-800">
-              <label className="text-[11px] font-medium text-slate-300 block mb-1.5">Cupom Promocional</label>
+            <form onSubmit={handleApplyCoupon} className="mt-6 border-t border-line pt-5">
+              <label htmlFor="coupon" className="field-label">Cupom</label>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Código do cupom"
-                  value={couponCode}
-                  onChange={(e) => setCouponCode(e.target.value)}
-                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white uppercase"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs rounded-lg border border-slate-700"
-                >
-                  Aplicar
-                </button>
+                <input id="coupon" type="text" placeholder="Código do cupom" value={couponCode} disabled={couponApplied} onChange={(e) => setCouponCode(e.target.value)} className="field uppercase disabled:bg-paper" />
+                {couponApplied ? (
+                  <button type="button" onClick={removeCoupon} className="btn-ghost px-4">Remover</button>
+                ) : (
+                  <button type="submit" className="btn-ghost px-4">Aplicar</button>
+                )}
               </div>
-              {couponApplied && (
-                <p className="text-[10px] text-emerald-400 font-medium mt-1">Cupom aplicado com sucesso!</p>
-              )}
-              {couponError && (
-                <p className="text-[10px] text-rose-400 mt-1">{couponError}</p>
-              )}
+              {couponApplied && <p className="mt-2 text-xs text-ok">Cupom aplicado! O valor final é conferido ao criar o pedido.</p>}
+              {couponError && <p className="mt-2 text-xs text-danger">{couponError}</p>}
             </form>
 
-            {/* Totais */}
-            <div className="space-y-1.5 pt-3 border-t border-slate-800 text-xs">
-              <div className="flex justify-between text-slate-400">
-                <span>Subtotal</span>
-                <span>{formatCurrency(rawSubtotal)}</span>
+            <dl className="mt-6 space-y-2 border-t border-line pt-5 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-graphite">Subtotal</dt>
+                <dd className="tabular-nums">{formatCurrency(rawSubtotal)}</dd>
               </div>
               {discount > 0 && (
-                <div className="flex justify-between text-emerald-400">
-                  <span>Desconto</span>
-                  <span>- {formatCurrency(discount)}</span>
+                <div className="flex justify-between text-ok">
+                  <dt>Desconto</dt>
+                  <dd className="tabular-nums">- {formatCurrency(discount)}</dd>
                 </div>
               )}
-              <div className="flex justify-between text-slate-400">
-                <span>Frete</span>
-                <span>{shippingCost === 0 ? 'Grátis' : formatCurrency(shippingCost)}</span>
+              <div className="flex justify-between">
+                <dt className="text-graphite">Frete</dt>
+                <dd className="tabular-nums">
+                  {!selectedShipping ? 'Informe o CEP' : shippingCost === 0 ? 'Grátis' : formatCurrency(shippingCost)}
+                </dd>
               </div>
-              <div className="flex justify-between text-sm font-bold text-white pt-2 border-t border-slate-800">
-                <span>Total</span>
-                <span className="text-indigo-400">{formatCurrency(total)}</span>
+              <div className="flex items-baseline justify-between border-t border-line pt-3">
+                <dt className="font-semibold">Total</dt>
+                <dd className="price text-3xl">{formatCurrency(total)}</dd>
               </div>
-            </div>
+            </dl>
 
-            <button
-              onClick={handlePlaceOrder}
-              disabled={isSubmitting}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-lg flex items-center justify-center gap-2 transition-colors shadow-sm"
-            >
-              <span>{isSubmitting ? 'Gerando Cobrança...' : 'Confirmar Pedido & Pagar'}</span>
-              <ArrowRight className="w-4 h-4" />
+            {formError && <p className="notice-error mt-4">{formError}</p>}
+
+            <button onClick={handlePlaceOrder} disabled={isSubmitting || noGateway} className="btn-buy mt-5 w-full py-3.5 text-base">
+              {isSubmitting ? 'Registrando pedido...' : isAuthenticated ? 'Confirmar Pedido e pagar' : 'Entrar para finalizar'}
             </button>
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   )

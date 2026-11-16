@@ -2,38 +2,81 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { PackageSearch } from 'lucide-react'
 import { formatCurrency } from '../../lib/utils'
+import { apiFetch, ApiError } from '../../lib/api'
+import { ORDER_STATUS_LABEL, statusTone } from '../../lib/orderStatus'
 
-type Order = { id: string; status: string; paymentStatus: string; total: number | string; createdAt: string; trackingCode?: string | null }
+type Order = {
+  id: string
+  status: string
+  paymentStatus: string
+  total: number | string
+  createdAt: string
+  trackingCode?: string | null
+  items: Array<{ id: string; name: string; quantity: number }>
+}
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [needsLogin, setNeedsLogin] = useState(false)
   const [error, setError] = useState('')
-  const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1'
 
   useEffect(() => {
-    fetch(`${api}/orders/my-orders`, { credentials: 'include' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(res.status === 401 ? 'Faça login para acompanhar seus pedidos.' : 'Não foi possível carregar os pedidos.')
-        const data = await res.json()
-        setOrders(data.orders || [])
+    apiFetch<{ orders: Order[] }>('/orders/my-orders')
+      .then((data) => setOrders(data.orders || []))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) setNeedsLogin(true)
+        else setError('Não foi possível carregar seus pedidos. Tente de novo.')
       })
-      .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [api])
+  }, [])
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-12 animate-fade-up">
-      <h1 className="text-2xl font-bold text-white">Acompanhar pedidos</h1>
-      <p className="mt-2 text-sm text-slate-400">Consulte o status, pagamento e rastreamento das suas compras.</p>
-      {loading && <p className="mt-8 text-sm text-slate-400">Carregando pedidos...</p>}
-      {!loading && error && <div className="mt-8 rounded-xl border border-amber-800 bg-amber-950/30 p-4 text-sm text-amber-300">{error} <Link className="underline" href="/login">Entrar</Link></div>}
-      {!loading && !error && orders.length === 0 && <div className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-8 text-center"><PackageSearch className="mx-auto h-10 w-10 text-slate-600" /><p className="mt-3 text-sm text-slate-300">Você ainda não possui pedidos.</p><Link href="/products" className="mt-5 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white">Ver catálogo</Link></div>}
-      <div className="mt-8 space-y-3">
-        {orders.map((order) => <Link href={`/orders/${order.id}`} key={order.id} className="block rounded-xl border border-slate-800 bg-slate-900 p-5 transition hover:-translate-y-0.5 hover:border-indigo-500/60"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold text-white">Pedido #{order.id.slice(-8)}</p><p className="mt-1 text-xs text-slate-400">{new Date(order.createdAt).toLocaleDateString('pt-BR')}</p></div><p className="font-bold text-indigo-400">{formatCurrency(Number(order.total))}</p></div><div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-300"><span className="rounded bg-slate-800 px-2 py-1">Status: {order.status}</span><span className="rounded bg-slate-800 px-2 py-1">Pagamento: {order.paymentStatus}</span>{order.trackingCode && <span className="rounded bg-emerald-950 px-2 py-1 text-emerald-300">Rastreio: {order.trackingCode}</span>}</div></Link>)}
-      </div>
-    </main>
+    <div className="container max-w-4xl pt-8 md:pt-12">
+      <h1 className="text-4xl font-extrabold tracking-tight md:text-5xl">Meus pedidos</h1>
+
+      {loading && <p className="mt-8 text-graphite">Carregando pedidos...</p>}
+      {error && <p className="notice-error mt-8">{error}</p>}
+
+      {needsLogin && (
+        <div className="stage mt-8 px-6 py-12 text-center">
+          <p className="font-display text-xl font-semibold">Entre para ver seus pedidos</p>
+          <Link className="btn-primary mt-6" href="/login?next=/orders">Entrar</Link>
+        </div>
+      )}
+
+      {!loading && !error && !needsLogin && orders.length === 0 && (
+        <div className="stage mt-8 px-6 py-12 text-center">
+          <p className="font-display text-xl font-semibold">Você ainda não fez nenhum pedido</p>
+          <p className="mt-2 text-graphite">Quando comprar, o acompanhamento aparece aqui.</p>
+          <Link href="/products" className="btn-primary mt-6">Ver smartphones</Link>
+        </div>
+      )}
+
+      <ul className="mt-8 space-y-3">
+        {orders.map((order) => (
+          <li key={order.id}>
+            <Link href={`/orders/${order.id}`} className="panel flex flex-col gap-4 p-5 transition-colors hover:border-ink sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="font-display text-lg font-semibold">Pedido #{order.id.slice(-8)}</p>
+                <p className="mt-0.5 text-sm text-graphite">
+                  {new Date(order.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                </p>
+                <p className="mt-2 truncate text-sm">
+                  {order.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
+                </p>
+              </div>
+              <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusTone(order.status)}`}>
+                  {ORDER_STATUS_LABEL[order.status] ?? order.status}
+                </span>
+                <span className="price text-lg">{formatCurrency(Number(order.total))}</span>
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }

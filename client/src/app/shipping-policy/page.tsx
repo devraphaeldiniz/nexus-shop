@@ -1,2 +1,15 @@
 import Link from 'next/link'
-export default function ShippingPolicyPage() { return <main className="prose prose-invert max-w-3xl mx-auto px-4 py-12 animate-fade-up"><h1>Política de frete</h1><p>O prazo e o valor do frete são calculados no checkout conforme o endereço informado e as opções disponíveis para a região.</p><h2>Rastreamento</h2><p>Após a postagem, o código de rastreamento será disponibilizado na área de pedidos e, quando configurado, enviado por e-mail.</p><h2>Prazo</h2><p>O prazo começa a contar após a confirmação do pagamento. Prazos podem sofrer alterações por fatores externos da transportadora.</p><p>Consulte sempre as condições exibidas antes de finalizar a compra.</p><Link href="/products" className="not-prose inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold">Voltar ao catálogo</Link></main> }
+
+export default function ShippingPolicyPage() {
+  return (
+    <article className="prose-store container max-w-3xl py-12 md:py-20">
+      <h1>Frete e prazos</h1>
+      <p>O valor e o prazo do frete aparecem no checkout assim que você informa o CEP. Há duas opções: econômica e expressa com seguro.</p>
+      <h2>Quando o prazo começa</h2>
+      <p>O prazo conta a partir da confirmação do pagamento. No PIX a confirmação é automática; no cartão, depende da aprovação do emissor.</p>
+      <h2>Rastreamento</h2>
+      <p>Assim que o pedido é postado, o código de rastreio aparece em Meus pedidos e chega por e-mail.</p>
+      <Link href="/products" className="btn-primary mt-8">Ver smartphones</Link>
+    </article>
+  )
+}
