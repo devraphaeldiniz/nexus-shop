@@ -16,6 +16,11 @@
 - **Externos**: Mercado Pago, Stripe, SMTP, ViaCEP. Sem filas (varredura de pedidos roda num `setInterval` na API).
 - **Auth**: JWT em cookies httpOnly — access 15 min (`/`), refresh 7 dias rotativo com `jti` (path `/api/v1/auth`); uma chave por sessão no Redis (`refresh:<userId>:<jti>`, `modules/auth/sessions.ts`), então várias sessões por conta convivem. Middleware aceita `Bearer` também. Nada de token no navegador. RBAC `CUSTOMER`/`ADMIN`.
 
+## Produção
+- Site: https://nexus-shop-raphaeldiniz.vercel.app (Vercel, Root Directory `client`, proxy `/api/v1` → API)
+- API: https://nexus-shop-api-otr4.onrender.com (Render free, Docker; dorme sem uso). Banco Neon, Redis Upstash.
+- Seed rodado em produção (22 produtos, contas demo). Pagamentos sem chaves reais.
+
 ## Como rodar
 ```bash
 docker compose up -d postgres redis
@@ -165,7 +170,7 @@ Prisma + PostgreSQL, IDs `cuid()`, dinheiro `Decimal(10,2)`, tabelas snake_case.
 - **Rate limit atrás do proxy do Next** (a confirmar): se o proxy não repassar `X-Forwarded-For`, todos os visitantes contam como o mesmo IP no limite de requisições.
 - Google OAuth não existe. Parcelamento não é oferecido (textos de "12x" foram removidos).
 - `trustProxy: true` confia em qualquer `X-Forwarded-For`; ok atrás de proxy (Render/Vercel), não exponha a API direto.
-- Fotos dos 22 produtos do seed vêm do Wikimedia Commons (CC BY, CC BY-SA ou CC0; autor e licença comentados em cada produto no `seed.ts`); exigem crédito se o site for público. Regra: só entra modelo com foto do aparelho exato.
+- Fotos dos 22 produtos do seed vêm do Wikimedia Commons (CC BY, CC BY-SA ou CC0; autor e licença comentados em cada produto no `seed.ts`); exigem crédito: página pública `/credits`, alimentada por `client/src/lib/photoCredits.ts` (manter em sincronia com o seed). Regra: só entra modelo com foto do aparelho exato.
 - O seed só cria produtos que não existem (upsert com `update: {}`): mudar dados de um produto já existente exige editar o banco ou o painel admin.
 - O seed não inventa mais notas: `avgRating`/`totalReviews` começam em 0 e vêm das avaliações reais.
 

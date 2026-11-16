@@ -58,7 +58,12 @@ export function Footer() {
 
       <div className="border-t border-line">
         <div className="container flex flex-col gap-2 py-5 text-xs text-graphite sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Nexus Shop. Projeto de portfólio.</p>
+          <p>
+            © {new Date().getFullYear()} Nexus Shop. Projeto de portfólio.{' '}
+            <Link href="/credits" className="underline-offset-4 hover:text-ink hover:underline">
+              Créditos das fotos
+            </Link>
+          </p>
           <p>Pagamentos processados por Mercado Pago e Stripe.</p>
         </div>
       </div>

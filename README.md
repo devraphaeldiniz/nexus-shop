@@ -4,6 +4,19 @@
 
 Loja completa com catálogo, carrinho, checkout com frete e cupom, pagamento por **PIX (Mercado Pago)** e **cartão (Stripe)** confirmados por webhook, área do cliente e painel administrativo.
 
+## 🌐 Demonstração online
+
+**https://nexus-shop-raphaeldiniz.vercel.app**
+
+Na tela de **Entrar** há botões para usar a loja sem cadastro:
+
+| Conta | E-mail | Senha | O que dá para fazer |
+|---|---|---|---|
+| Cliente | `cliente.demo@nexusshop.com` | `Demo1234` | Navegar, montar carrinho, aplicar cupom (`NEXUS10`) e registrar pedidos |
+| Administrador | `admin.demo@nexusshop.com` | `Demo1234` | Ver todo o painel: produtos, pedidos, métricas e configurações (somente leitura) |
+
+> A API roda no plano gratuito do Render e "dorme" sem uso: o primeiro acesso pode levar até 1 minuto. Os pagamentos estão sem chaves reais nesta demonstração.
+
 ## ✨ Funcionalidades
 
 **Cliente**
@@ -97,6 +110,9 @@ O CI (GitHub Actions) roda lint, typecheck e testes da API com Postgres/Redis, l
 
 ## 📦 Deploy
 Passo a passo em [DEPLOY.md](./DEPLOY.md) (Vercel + Render + Neon + Upstash).
+
+## 📷 Créditos das fotos
+As fotos dos aparelhos são do [Wikimedia Commons](https://commons.wikimedia.org), sob licenças Creative Commons (CC BY, CC BY-SA e CC0). Autor, fonte e licença de cada uma estão na página [/credits](https://nexus-shop-raphaeldiniz.vercel.app/credits) da loja.
 
 ## 📄 Licença
 MIT
