@@ -76,6 +76,8 @@ export interface User {
   role: 'CUSTOMER' | 'ADMIN'
   avatar?: string
   phone?: string
+  /** Conta de demonstração (senha pública): admin só lê, cliente não troca e-mail/senha */
+  isDemo?: boolean
   addresses?: Address[]
 }
 
@@ -107,7 +109,7 @@ export interface Order {
   status: 'PENDING' | 'CONFIRMED' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'REFUNDED'
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
   paymentGateway: 'STRIPE' | 'MERCADOPAGO'
-  paymentMethod: 'CREDIT_CARD' | 'PIX' | 'BOLETO'
+  paymentMethod: 'CREDIT_CARD' | 'PIX'
   subtotal: number
   shippingCost: number
   discount: number

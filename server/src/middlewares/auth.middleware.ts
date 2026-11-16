@@ -30,7 +30,7 @@ export async function authenticate(request: FastifyRequest, _reply: FastifyReply
   try {
     const payload = verifyAccessToken(token)
     request.user = payload
-  } catch (error) {
+  } catch {
     throw new UnauthorizedError('Sessão inválida ou expirada. Faça login novamente.')
   }
 }
@@ -43,6 +43,11 @@ export function authorize(...allowedRoles: Array<'CUSTOMER' | 'ADMIN'>) {
 
     if (!allowedRoles.includes(request.user.role)) {
       throw new ForbiddenError('Acesso negado: privilégios insuficientes')
+    }
+
+    // Admin de demonstração vê o painel inteiro, mas não altera nada
+    if (request.user.demo && allowedRoles.includes('ADMIN') && !['GET', 'HEAD'].includes(request.method)) {
+      throw new ForbiddenError('Conta de demonstração: o painel é somente leitura.')
     }
   }
 }

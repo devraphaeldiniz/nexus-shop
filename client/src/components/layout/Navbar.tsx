@@ -1,209 +1,151 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import {
-  Smartphone,
-  ShoppingCart,
-  User as UserIcon,
-  Search,
-  Menu,
-  X,
-  LogOut,
-  Shield,
-  Truck,
-  Settings,
-} from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
+import { LogOut, Menu, Search, ShoppingBag, User as UserIcon, X } from 'lucide-react'
 import { useCartStore } from '../../store/useCartStore'
 import { useAuthStore } from '../../store/useAuthStore'
+import { logout } from '../../lib/api'
+import { Logo } from './Logo'
+
+const NAV_LINKS = [
+  { href: '/products', label: 'Smartphones' },
+  { href: '/products?brand=Apple', label: 'iPhone' },
+  { href: '/products?brand=Samsung', label: 'Samsung' },
+  { href: '/orders', label: 'Meus pedidos' },
+]
 
 export function Navbar() {
   const router = useRouter()
+  const pathname = usePathname()
   const { totalItems, setIsOpen } = useCartStore()
-  const { user, isAuthenticated, logout } = useAuthStore()
+  const { user, isAuthenticated } = useAuthStore()
 
   const [mounted, setMounted] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  useEffect(() => setMounted(true), [])
+  useEffect(() => setMenuOpen(false), [pathname])
+
+  const count = mounted ? totalItems() : 0
+  const firstName = user?.name?.split(' ')[0]
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (searchTerm.trim()) {
       router.push(`/products?search=${encodeURIComponent(searchTerm.trim())}`)
-      setIsMobileMenuOpen(false)
     }
   }
 
   return (
-    <>
-      {/* Top Banner Institucional */}
-      <div className="bg-slate-900 border-b border-slate-800 text-slate-300 text-xs py-2 px-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1.5 font-medium text-slate-300">
-              <Shield className="w-3.5 h-3.5 text-slate-400" />
-              Aparelhos com Garantia Nacional de 12 Meses
-            </span>
-            <span className="hidden sm:inline-block text-slate-600">|</span>
-            <span className="hidden sm:flex items-center gap-1.5 text-slate-400">
-              <Truck className="w-3.5 h-3.5" />
-              Envio com seguro para todo o território nacional
-            </span>
-          </div>
+    <header className="sticky top-0 z-40 border-b border-white/60 bg-white/60 backdrop-blur-xl">
+      <div className="container flex h-16 items-center gap-4 md:h-[72px] md:gap-8">
+        <button
+          className="-ml-2 rounded-full p-2 text-ink md:hidden"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
+          aria-expanded={menuOpen}
+        >
+          {menuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
 
-          <div className="flex items-center gap-4">
-            {mounted && user?.role === 'ADMIN' ? (
+        <Logo />
+
+        <nav className="hidden items-center gap-6 text-sm font-medium text-graphite lg:flex">
+          {NAV_LINKS.map((link) => (
+            <Link key={link.href} href={link.href} className="transition-colors hover:text-ink">
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+
+        <form onSubmit={handleSearch} className="relative ml-auto hidden max-w-sm flex-1 md:block">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-graphite" />
+          <input
+            type="search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar modelo ou marca"
+            aria-label="Buscar smartphones"
+            className="w-full rounded-full border border-white/70 bg-white/70 py-2.5 pl-10 pr-4 text-sm placeholder:text-graphite/70 focus:border-ink focus:bg-white focus:outline-none"
+          />
+        </form>
+
+        <div className="ml-auto flex items-center gap-1 md:ml-0">
+          {mounted && isAuthenticated ? (
+            <>
+              {user?.role === 'ADMIN' && (
+                <Link href="/admin" className="hidden rounded-full px-3 py-2 text-sm font-medium text-graphite hover:text-ink sm:inline-block">
+                  Painel
+                </Link>
+              )}
               <Link
-                href="/admin"
-                className="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 text-xs"
+                href="/account"
+                title="Minha conta"
+                className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-ink hover:bg-paper"
               >
-                <Settings className="w-3.5 h-3.5" />
-                Painel do Lojista
+                <UserIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">{firstName}</span>
               </Link>
-            ) : (
-              <span className="text-slate-400">Suporte ao Cliente & Pedidos</span>
-            )}
-          </div>
+              <button
+                onClick={() => logout().then(() => router.push('/'))}
+                title="Sair"
+                className="rounded-full p-2 text-graphite hover:bg-paper hover:text-ink"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <Link href="/login" className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-ink hover:bg-paper">
+              <UserIcon className="h-4 w-4" />
+              <span>Entrar</span>
+            </Link>
+          )}
+
+          <button
+            onClick={() => setIsOpen(true)}
+            className="relative ml-1 flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink-soft"
+            aria-label={`Carrinho com ${count} ${count === 1 ? 'item' : 'itens'}`}
+          >
+            <ShoppingBag className="h-4 w-4" />
+            <span className="tabular-nums">{count}</span>
+            {count > 0 && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-signal ring-2 ring-white" />}
+          </button>
         </div>
       </div>
 
-      {/* Header Principal */}
-      <header className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur-sm border-b border-slate-800 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between gap-6 py-4">
-          {/* Logo Comercial */}
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">
-              <Smartphone className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-xl font-bold tracking-tight text-white">
-                NEXUS<span className="text-indigo-400">SHOP</span>
-              </span>
-              <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-medium">
-                Smartphones & Acessórios
-              </span>
-            </div>
-          </Link>
-
-          {/* Busca Comercial */}
-          <form
-            onSubmit={handleSearch}
-            className="hidden md:flex flex-1 max-w-lg relative items-center"
-          >
-            <input
-              type="text"
-              placeholder="Pesquisar por smartphone, marca ou modelo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg py-2 pl-10 pr-4 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-slate-600 transition-colors"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5" />
-          </form>
-
-          {/* Links e Ações */}
-          <div className="flex items-center gap-4">
-            <Link
-              href="/products"
-              className="hidden lg:inline-block text-xs font-semibold text-slate-300 hover:text-white transition-colors"
-            >
-              Catálogo
-            </Link>
-
-            {mounted && isAuthenticated ? (
-              <div className="flex items-center gap-3 border-l border-slate-800 pl-4">
-                <div className="text-right hidden sm:block">
-                  <p className="text-xs font-semibold text-white">{user?.name}</p>
-                  <p className="text-[10px] text-slate-400">{user?.role === 'ADMIN' ? 'Administrador' : 'Cliente'}</p>
-                </div>
-                <button
-                  onClick={() => logout()}
-                  title="Sair"
-                  className="p-2 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-900 transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <Link
-                href="/login"
-                className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 hover:text-white py-2 px-3 rounded-lg border border-slate-800 hover:bg-slate-900 transition-colors"
-              >
-                <UserIcon className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Entrar</span>
-              </Link>
-            )}
-
-            {/* Carrinho */}
-            <button
-              onClick={() => setIsOpen(true)}
-              className="relative p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors flex items-center justify-center"
-              aria-label="Carrinho"
-            >
-              <ShoppingCart className="w-4 h-4" />
-              {mounted && totalItems() > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                  {totalItems()}
-                </span>
-              )}
-            </button>
-
-            {/* Mobile Hamburger */}
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="md:hidden p-2 text-slate-400 hover:text-white"
-            >
-              {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Menu Mobile */}
-        {isMobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-800 p-4 bg-slate-950 space-y-3">
+      {menuOpen && (
+        <div className="border-t border-line bg-white md:hidden">
+          <div className="container space-y-4 py-4">
             <form onSubmit={handleSearch} className="relative">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-graphite" />
               <input
-                type="text"
-                placeholder="Pesquisar smartphones..."
+                type="search"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg py-2 pl-9 pr-3 text-xs text-white"
+                placeholder="Buscar modelo ou marca"
+                aria-label="Buscar smartphones"
+                className="field rounded-full pl-10"
               />
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             </form>
-
-            <div className="flex flex-col gap-2 text-xs font-medium text-slate-300">
-              <Link
-                href="/products"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="p-2 hover:bg-slate-900 rounded"
-              >
-                Todos os Smartphones
-              </Link>
-              <Link
-                href="/products"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="p-2 hover:bg-slate-900 rounded"
-              >
-                Catálogo completo
-              </Link>
-              {mounted && user?.role === 'ADMIN' && (
-                <Link
-                  href="/admin"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-2 text-indigo-400 font-semibold bg-slate-900 rounded"
-                >
-                  Painel de Gestão da Loja
+            <nav className="grid gap-1 text-base font-medium">
+              {NAV_LINKS.map((link) => (
+                <Link key={link.href} href={link.href} className="rounded-xl px-3 py-2.5 hover:bg-paper">
+                  {link.label}
                 </Link>
+              ))}
+              {mounted && isAuthenticated && (
+                <Link href="/account" className="rounded-xl px-3 py-2.5 hover:bg-paper">Minha conta</Link>
               )}
-            </div>
+              {mounted && user?.role === 'ADMIN' && (
+                <Link href="/admin" className="rounded-xl px-3 py-2.5 hover:bg-paper">Painel da loja</Link>
+              )}
+            </nav>
           </div>
-        )}
-      </header>
-    </>
+        </div>
+      )}
+    </header>
   )
 }

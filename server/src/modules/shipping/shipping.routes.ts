@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { prisma } from '../../config/prisma.js'
 import { BadRequestError } from '../../utils/errors.js'
+import { getShippingOptions } from './shipping.service.js'
 
 const CalculateShippingSchema = z.object({
   zipCode: z.string().min(8).max(9),
@@ -26,7 +26,9 @@ export async function shippingRoutes(app: FastifyInstance) {
     }
 
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`)
+      const response = await fetch(`https://viacep.com.br/ws/${cleanZip}/json/`, {
+        signal: AbortSignal.timeout(5000),
+      })
       if (response.ok) {
         const data = await response.json()
         if (!data.erro) {
@@ -42,30 +44,9 @@ export async function shippingRoutes(app: FastifyInstance) {
       // Continua com cálculo padrão se ViaCEP estiver instável
     }
 
-    // Obter regra de frete configurada pelo lojista
-    const settings = await prisma.storeSettings.findUnique({ where: { id: 'default' } })
-    const threshold = Number(settings?.freeShippingThreshold || 0)
-
-    const isFree = threshold > 0 && subtotal >= threshold
-
     return reply.send({
       address: addressData,
-      options: [
-        {
-          id: 'express',
-          name: 'Envio Expresso com Seguro',
-          deadline: '2 a 4 dias úteis',
-          price: isFree ? 0 : 39.90,
-          isFree,
-        },
-        {
-          id: 'standard',
-          name: 'Envio Econômico',
-          deadline: '5 a 8 dias úteis',
-          price: isFree ? 0 : 19.90,
-          isFree,
-        },
-      ],
+      options: await getShippingOptions(subtotal),
     })
   })
 }

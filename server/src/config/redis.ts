@@ -74,6 +74,26 @@ class CacheClient {
     const had = this.memoryStore.delete(key)
     return had ? 1 : 0
   }
+
+  /** Apaga todas as chaves que começam com o prefixo (SCAN, sem travar o Redis). */
+  async delByPrefix(prefix: string): Promise<number> {
+    let removed = 0
+    if (this.isConnected && this.redis) {
+      try {
+        const stream = this.redis.scanStream({ match: `${prefix}*`, count: 100 })
+        for await (const keys of stream as AsyncIterable<string[]>) {
+          if (keys.length > 0) removed += await this.redis.del(...keys)
+        }
+        return removed
+      } catch {
+        // Fallback
+      }
+    }
+    for (const key of Array.from(this.memoryStore.keys())) {
+      if (key.startsWith(prefix) && this.memoryStore.delete(key)) removed++
+    }
+    return removed
+  }
 }
 
 export const redis = new CacheClient()

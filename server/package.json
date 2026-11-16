@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'Linting complete'"
+    "lint": "eslint src tests prisma",
+    "test:db": "node scripts/test-db.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
@@ -42,15 +43,22 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.14.14",
     "@types/nodemailer": "^6.4.15",
     "@types/sanitize-html": "^2.11.0",
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0",
     "pino-pretty": "^13.2.0",
     "prisma": "^5.18.0",
     "tsx": "^4.17.0",
     "typescript": "^5.5.4",
+    "typescript-eslint": "^8.72.2",
     "vitest": "^2.0.5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

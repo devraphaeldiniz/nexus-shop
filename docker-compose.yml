@@ -1,18 +1,20 @@
+# Ambiente local de desenvolvimento. Os valores abaixo são só para a sua máquina;
+# em produção use variáveis de ambiente do provedor (veja DEPLOY.md).
 services:
   postgres:
     image: postgres:16-alpine
     container_name: nexus-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: nexus_user
-      POSTGRES_PASSWORD: nexus_password123
-      POSTGRES_DB: nexus_shop
+      POSTGRES_USER: ${POSTGRES_USER:-nexus_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus_password123}
+      POSTGRES_DB: ${POSTGRES_DB:-nexus_shop}
     ports:
       - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U nexus_user -d nexus_shop']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nexus_user} -d ${POSTGRES_DB:-nexus_shop}']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,6 +34,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # Opcional: API e front em containers (`docker compose up`). No dia a dia, rode com `npm run dev`.
   api:
     build:
       context: ./server
@@ -40,13 +43,13 @@ services:
     restart: unless-stopped
     ports:
       - '3001:3001'
+    env_file:
+      - ./server/.env
     environment:
       NODE_ENV: development
       PORT: 3001
-      DATABASE_URL: postgresql://nexus_user:nexus_password123@postgres:5432/nexus_shop?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nexus_user}:${POSTGRES_PASSWORD:-nexus_password123}@postgres:5432/${POSTGRES_DB:-nexus_shop}?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_ACCESS_SECRET: super-secure-jwt-access-secret-32-chars-long!
-      JWT_REFRESH_SECRET: super-secure-jwt-refresh-secret-32-chars-long!
       FRONTEND_URL: http://localhost:3000
     depends_on:
       postgres:
@@ -54,25 +57,22 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./server/src:/app/src
-      - ./server/prisma:/app/prisma
+      - uploads_data:/app/uploads
 
   client:
     build:
       context: ./client
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
     container_name: nexus-client
     restart: unless-stopped
     ports:
       - '3000:3000'
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
     depends_on:
       - api
-    volumes:
-      - ./client/src:/app/src
-      - ./client/public:/app/public
 
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:

@@ -8,12 +8,15 @@ import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
 import fastifyStatic from '@fastify/static'
 import path from 'path'
+import fs from 'fs'
 import { ZodError } from 'zod'
 
-import { env } from './config/env.js'
+import Redis from 'ioredis'
+import { env, corsOrigins } from './config/env.js'
 import { prisma } from './config/prisma.js'
 import { redis } from './config/redis.js'
 import { AppError } from './utils/errors.js'
+import { maskPersonalData } from './utils/demo-privacy.js'
 
 import { authRoutes } from './modules/auth/auth.routes.js'
 import { productRoutes } from './modules/products/products.routes.js'
@@ -27,15 +30,17 @@ import { adminRoutes } from './modules/admin/admin.routes.js'
 import { settingsRoutes } from './modules/settings/settings.routes.js'
 import { uploadRoutes } from './modules/upload/upload.routes.js'
 import { shippingRoutes } from './modules/shipping/shipping.routes.js'
+import { contactRoutes } from './modules/contact/contact.routes.js'
+import { accountRoutes } from './modules/account/account.routes.js'
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
-    logger: env.NODE_ENV === 'development' ? {
-      transport: {
-        target: 'pino-pretty',
-        options: { colorize: true },
-      },
-    } : true,
+    logger:
+      env.NODE_ENV === 'test'
+        ? false
+        : env.NODE_ENV === 'development'
+          ? { transport: { target: 'pino-pretty', options: { colorize: true } } }
+          : true,
     trustProxy: true,
   })
 
@@ -62,16 +67,18 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // 2. CORS
   await app.register(cors, {
-    origin: [env.FRONTEND_URL, 'http://localhost:3000'],
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 
-  // 3. RATE LIMITING
+  // 3. RATE LIMITING — contador no Redis (compartilhado entre instâncias); em memória se o Redis não responder
+  const rateLimitRedis = await connectRateLimitRedis(app)
   await app.register(rateLimit, {
-    max: 120,
+    max: env.RATE_LIMIT_MAX,
     timeWindow: '1 minute',
+    ...(rateLimitRedis ? { redis: rateLimitRedis, nameSpace: 'nexus-rl:', skipOnError: true } : {}),
     errorResponseBuilder: () => ({
       statusCode: 429,
       error: 'Too Many Requests',
@@ -89,6 +96,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // 4.1 ARQUIVOS ESTÁTICOS / UPLOADS DE PRODUTOS
   const uploadsPath = path.resolve(process.cwd(), 'uploads')
+  fs.mkdirSync(uploadsPath, { recursive: true })
   await app.register(fastifyStatic, {
     root: uploadsPath,
     prefix: '/uploads/',
@@ -152,6 +160,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   })
 
+  // 6.1 PRIVACIDADE NO MODO DEMO: o admin de demonstração (senha pública) não vê dados pessoais de clientes reais
+  app.addHook('preSerialization', async (request, _reply, payload) =>
+    request.user?.demo && request.user.role === 'ADMIN' ? maskPersonalData(payload) : payload
+  )
+
   // 7. REGISTRO DE ROTAS VERSIONADAS (/api/v1)
   app.register(
     async (apiV1) => {
@@ -167,6 +180,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       apiV1.register(settingsRoutes, { prefix: '/settings' })
       apiV1.register(uploadRoutes, { prefix: '/upload' })
       apiV1.register(shippingRoutes, { prefix: '/shipping' })
+      apiV1.register(contactRoutes, { prefix: '/contact' })
+      apiV1.register(accountRoutes, { prefix: '/account' })
     },
     { prefix: '/api/v1' }
   )
@@ -193,6 +208,16 @@ export async function buildApp(): Promise<FastifyInstance> {
       })
     }
 
+    // Erros do Fastify e de plugins que já trazem um status 4xx (limite de requisições, corpo grande demais...)
+    const statusCode = (error as { statusCode?: number }).statusCode
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      return reply.status(statusCode).send({
+        statusCode,
+        error: (error as { error?: string }).error ?? error.name,
+        message: error.message,
+      })
+    }
+
     // Erros não tratados
     app.log.error(error)
     return reply.status(500).send({
@@ -206,3 +231,32 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   return app
 }
+
+/**
+ * Conexão dedicada ao rate limit. Em testes usa memória; se o Redis não conectar em 2s,
+ * cai para memória com aviso (a API continua no ar).
+ */
+async function connectRateLimitRedis(app: FastifyInstance): Promise<Redis | null> {
+  if (env.NODE_ENV === 'test') return null
+
+  const client = new Redis(env.REDIS_URL, {
+    lazyConnect: true,
+    connectTimeout: 2000,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+  })
+  client.on('error', () => undefined)
+
+  try {
+    await client.connect()
+    app.addHook('onClose', async () => {
+      await client.quit().catch(() => undefined)
+    })
+    return client
+  } catch {
+    app.log.warn('Redis indisponível para o rate limit: usando contador em memória.')
+    client.disconnect()
+    return null
+  }
+}
+

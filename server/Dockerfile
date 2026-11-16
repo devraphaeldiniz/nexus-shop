@@ -29,11 +29,15 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 
+# Pasta de uploads gravável pelo usuário da aplicação (monte um volume aqui)
+RUN mkdir -p /app/uploads && chown -R fastify:nodejs /app/uploads
+
 USER fastify
 
 EXPOSE 3001
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
-CMD ["node", "dist/server.js"]
+# Aplica as migrações pendentes antes de subir a API
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]

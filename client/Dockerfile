@@ -1,14 +1,17 @@
-# Next.js multi-stage build
+# Next.js multi-stage build (output: 'standalone')
 FROM node:20-alpine AS builder
 
 WORKDIR /app
+
+# A URL da API entra no bundle do navegador no momento do build
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
-
-ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # Runner Stage
@@ -23,8 +26,8 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
