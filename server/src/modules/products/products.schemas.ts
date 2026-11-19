@@ -10,7 +10,8 @@ export const ProductQuerySchema = z.object({
   storage: z.coerce.number().int().positive().optional(),
   sort: z.enum(['price_asc', 'price_desc', 'newest', 'rating', 'popular']).default('newest'),
   search: z.string().optional(),
-  featured: z.coerce.boolean().optional(),
+  // z.coerce.boolean() transformaria "false" em true (qualquer texto não vazio é true)
+  featured: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 })
 
 export const CreateProductSchema = z.object({

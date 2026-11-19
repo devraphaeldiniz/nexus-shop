@@ -69,14 +69,6 @@ async function fetchWithRefresh(url: string, init: RequestInit): Promise<Respons
   return response
 }
 
-/**
- * fetch autenticado pela sessão em cookie httpOnly. Aceita caminho da API ("/orders") ou URL completa.
- * Em 401, tenta renovar a sessão (POST /auth/refresh) e repete a requisição uma vez.
- */
-export async function authFetch(endpoint: string, init: RequestInit = {}): Promise<Response> {
-  return fetchWithRefresh(buildUrl(endpoint), init)
-}
-
 interface ApiOptions extends Omit<RequestInit, 'body'> {
   params?: Record<string, string | number | boolean | undefined | null>
   /** Objeto (enviado como JSON) ou FormData. */
