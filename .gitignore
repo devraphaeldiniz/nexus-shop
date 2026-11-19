@@ -23,3 +23,7 @@ playwright/.cache/
 # Gerados
 *.tsbuildinfo
 server/uploads/
+
+# arquivos de agentes de IA (locais)
+CLAUDE.md
+AGENTS.md
