@@ -8,6 +8,14 @@ const CalculateShippingSchema = z.object({
   subtotal: z.number().nonnegative(),
 })
 
+interface ViaCepResponse {
+  erro?: boolean | string
+  localidade?: string
+  uf?: string
+  bairro?: string
+  logradouro?: string
+}
+
 export async function shippingRoutes(app: FastifyInstance) {
   app.post('/calculate', async (request, reply) => {
     const { zipCode, subtotal } = CalculateShippingSchema.parse(request.body)
@@ -30,7 +38,7 @@ export async function shippingRoutes(app: FastifyInstance) {
         signal: AbortSignal.timeout(5000),
       })
       if (response.ok) {
-        const data = await response.json()
+        const data = (await response.json()) as ViaCepResponse
         if (!data.erro) {
           addressData = {
             city: data.localidade || '',

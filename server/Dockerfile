@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile para Nexus Shop Backend
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 # O Prisma precisa do OpenSSL para escolher (e baixar no build) o engine certo
 RUN apk add --no-cache openssl
@@ -17,7 +17,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # Runtime Stage
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 RUN apk add --no-cache openssl
 

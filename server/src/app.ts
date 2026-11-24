@@ -1,4 +1,4 @@
-import fastify, { FastifyInstance } from 'fastify'
+import fastify, { FastifyError, FastifyInstance } from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
@@ -187,7 +187,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   )
 
   // 8. ERROR HANDLER GLOBAL ESTRUTURADO
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler<FastifyError>((error, _request, reply) => {
     if (error instanceof ZodError) {
       return reply.status(400).send({
         statusCode: 400,
