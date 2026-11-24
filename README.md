@@ -50,8 +50,8 @@ Navegador ──▶ Next.js (client/) ──/api/v1 (proxy opcional)──▶ Fa
 
 | Camada | Tecnologias |
 |---|---|
-| Front | Next.js 14 (App Router), TypeScript, Tailwind, Zustand, Stripe.js |
-| API | Fastify 4, TypeScript, Zod, Prisma 5, ioredis, Nodemailer |
+| Front | Next.js 15 (App Router), TypeScript, Tailwind, Zustand, Stripe.js |
+| API | Fastify 5, TypeScript, Zod, Prisma 5, ioredis, Nodemailer |
 | Dados | PostgreSQL 16, Redis 7 |
 | Pagamentos | Mercado Pago (PIX), Stripe (cartão) |
 | Qualidade | Vitest (unitários + integração com banco real), Playwright (E2E), ESLint, GitHub Actions |
@@ -67,7 +67,7 @@ Navegador ──▶ Next.js (client/) ──/api/v1 (proxy opcional)──▶ Fa
 
 ## 🚀 Como rodar localmente
 
-Pré-requisitos: Node.js 20+, Docker.
+Pré-requisitos: Node.js 22.12+, Docker.
 
 ```bash
 # 1. Banco e cache

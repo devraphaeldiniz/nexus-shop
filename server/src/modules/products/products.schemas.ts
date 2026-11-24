@@ -42,6 +42,9 @@ export const CreateProductSchema = z.object({
 })
 
 export const UpdateProductSchema = CreateProductSchema.partial().extend({
+  // Sem valor padrão: no Zod 4, partial() mantém o default e zeraria o estoque numa edição parcial
+  stock: z.number().int().nonnegative().optional(),
+  isFeatured: z.boolean().optional(),
   // Reativar/pausar o produto na vitrine pelo painel
   isActive: z.boolean().optional(),
   compareAtPrice: z.number().positive().nullable().optional(),
