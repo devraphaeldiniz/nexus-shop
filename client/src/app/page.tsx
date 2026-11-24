@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+import { unstable_cache } from 'next/cache'
 import Link from 'next/link'
 import { BadgeCheck, QrCode, Truck } from 'lucide-react'
 import { ProductCard } from '../components/products/ProductCard'
@@ -13,13 +15,38 @@ function serverApiUrl() {
     : `${process.env.API_PROXY_TARGET?.replace(/\/$/, '')}/api/v1`
 }
 
-async function getJson<T>(path: string, fallback: T): Promise<T> {
+// Renderiza a cada visita (o build não depende da API), com o catálogo em cache
+export const dynamic = 'force-dynamic'
+
+async function fetchJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${serverApiUrl()}${path}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`API respondeu ${res.status} em ${path}`)
+  return (await res.json()) as T
+}
+
+/**
+ * Catálogo da home em cache por 5 minutos e atualizado em segundo plano: a API
+ * gratuita "dorme" e leva até 1 minuto para acordar. Falha ou lista vazia lança
+ * erro, para nunca ficar guardada. Preço e estoque valem os da API no checkout.
+ */
+const getHomeCatalog = unstable_cache(
+  async () => {
+    const [{ products = [] }, { brands = [] }] = await Promise.all([
+      fetchJson<{ products?: Product[] }>('/products?limit=8&sort=popular'),
+      fetchJson<{ brands?: string[] }>('/products/brands'),
+    ])
+    if (products.length === 0) throw new Error('Catálogo vazio')
+    return { products, brands }
+  },
+  ['home-catalog'],
+  { revalidate: 300 }
+)
+
+async function loadHomeCatalog(): Promise<{ products: Product[]; brands: string[] }> {
   try {
-    const res = await fetch(`${serverApiUrl()}${path}`, { cache: 'no-store' })
-    if (!res.ok) return fallback
-    return (await res.json()) as T
+    return await getHomeCatalog()
   } catch {
-    return fallback
+    return { products: [], brands: [] }
   }
 }
 
@@ -41,11 +68,27 @@ const PROMISES = [
   },
 ]
 
-export default async function HomePage() {
-  const [{ products = [] }, { brands = [] }] = await Promise.all([
-    getJson<{ products?: Product[] }>('/products?limit=8&sort=popular', {}),
-    getJson<{ brands?: string[] }>('/products/brands', {}),
-  ])
+/** Vitrine sem aparelho: enquanto o catálogo carrega ou se a API não responder. */
+function HeroFallback({ loading = false }: { loading?: boolean }) {
+  return (
+    <div className="hero-stage rounded-stage px-6 py-16 md:px-14">
+      <h1 className="max-w-2xl text-5xl font-extrabold leading-[0.95] tracking-tight md:text-7xl">
+        Smartphones novos, com nota fiscal.
+      </h1>
+      {loading && (
+        <p role="status" className="mt-5 max-w-md text-lg leading-relaxed text-white/70">
+          Carregando os aparelhos. Na primeira visita, pode levar até 1 minuto.
+        </p>
+      )}
+      <Link href="/products" className="btn-primary mt-8 px-7 py-3 text-base">
+        Ver smartphones
+      </Link>
+    </div>
+  )
+}
+
+async function HomeCatalog() {
+  const { products, brands } = await loadHomeCatalog()
   const featured = products.find((p) => p.isFeatured) ?? products[0]
 
   return (
@@ -100,14 +143,7 @@ export default async function HomePage() {
             </div>
           </div>
         ) : (
-          <div className="hero-stage rounded-stage px-6 py-16 md:px-14">
-            <h1 className="max-w-2xl text-5xl font-extrabold leading-[0.95] tracking-tight md:text-7xl">
-              Smartphones novos, com nota fiscal.
-            </h1>
-            <Link href="/products" className="btn-primary mt-8 px-7 py-3 text-base">
-              Ver smartphones
-            </Link>
-          </div>
+          <HeroFallback />
         )}
       </section>
 
@@ -145,6 +181,22 @@ export default async function HomePage() {
           </div>
         </section>
       )}
+    </div>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <div className="space-y-20 md:space-y-28">
+      <Suspense
+        fallback={
+          <section className="container pt-6 md:pt-10">
+            <HeroFallback loading />
+          </section>
+        }
+      >
+        <HomeCatalog />
+      </Suspense>
 
       {/* Por que comprar aqui */}
       <section className="container">
